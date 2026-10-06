@@ -1,0 +1,14 @@
+.deps/
+build/
+build-*/
+__cmake_systeminformation/
+logs/
+*.user
+.vs/
+dist/
+# Per-user settings: FlatToDepth creates these from flattodepth.default.ini and saves your window placement into them.
+/flattodepth.ini
+/flattodepth-*.ini
+!/flattodepth*.default.ini
+# Games you added yourself (see docs/GAMES.md); never part of the repository or overwritten by an update.
+/games.user.ini

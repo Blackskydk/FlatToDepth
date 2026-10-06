@@ -1,0 +1,75 @@
+# Shared by tests/catalog_test.cpp and tests/catalog_test.ps1, so the C++ and PowerShell readers of the games
+# catalog can never disagree about what a valid entry is. One case per line, separated by tabs:
+#   good|bad <TAB> description <TAB> text the entry must contain in its error (bad only) <TAB> the entry
+# <NL> stands for a line break; {sha} is 64 hex digits (lower case; {SHA} upper case), {z64} 64 letters z, {a32} {a33}
+# 32 or 33 letters a, {x24} {x25} 24 or 25 letters x.
+good	smallest valid entry		[hollow-knight]<NL>title=Hollow Knight<NL>steam_app_id=367520<NL>exe=hollow_knight.exe<NL>
+good	every optional field		[hk]<NL>title=Hollow Knight<NL>subtitle=Silksong<NL>steam_app_id=367520<NL>exe=hollow_knight.exe<NL>machine=x64<NL>profile=hk.ini<NL>key1=Convergence|F1<NL>key2 = HUD | f12<NL>shim_files=xinput1_4.dll, XInput1_3.dll<NL>folder=Hollow Knight<NL>
+good	a fix with everything		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>fix_archive=fix.7z<NL>fix_inner=Inner.7z<NL>fix_marker=d3dx.ini<NL>fix_dir=hk-fix<NL>fix_manifest=geo11-hk.json<NL>shim_manifest=gamepad-hk.json<NL>fix_author=Somebody<NL>
+good	a fix with defaults		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/Some%2DFix+1.7z?download=1#top<NL>fix_sha256={SHA}<NL>
+good	an id with digits, underscore and dash		[a_b-9]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+good	an id of 32 characters		[{a32}]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+good	the largest Steam app number		[a]<NL>title=T<NL>steam_app_id=4294967295<NL>exe=a.exe<NL>
+good	an exe with a space and a plus		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=My Game+.exe<NL>
+good	six keys		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=A|F1<NL>key2=B|F2<NL>key3=C|F3<NL>key4=D|F4<NL>key5=E|F5<NL>key6=F|F6<NL>
+good	a label of 24 characters		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1={x24}|F1<NL>
+good	an upper-case exe extension		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=A.EXE<NL>
+good	a title with non-ASCII text		[a]<NL>title=Ōri – Pokémon<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	upper-case id	section name	[Hollow]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	id with a dot	section name	[a.b]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	id that is too long	section name	[{a33}]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	id with a path	section name	[a/b]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	id starting with a dash	section name	[-a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	empty id	section name	[]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	id with a space	section name	[a b]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	no title	title	[a]<NL>steam_app_id=1<NL>exe=a.exe<NL>
+bad	no app	steam_app_id	[a]<NL>title=T<NL>exe=a.exe<NL>
+bad	app 0	steam_app_id	[a]<NL>title=T<NL>steam_app_id=0<NL>exe=a.exe<NL>
+bad	app text	steam_app_id	[a]<NL>title=T<NL>steam_app_id=12ab<NL>exe=a.exe<NL>
+bad	app too big	steam_app_id	[a]<NL>title=T<NL>steam_app_id=4294967296<NL>exe=a.exe<NL>
+bad	app far too big	steam_app_id	[a]<NL>title=T<NL>steam_app_id=99999999999<NL>exe=a.exe<NL>
+bad	app negative	steam_app_id	[a]<NL>title=T<NL>steam_app_id=-5<NL>exe=a.exe<NL>
+bad	app with a plus	steam_app_id	[a]<NL>title=T<NL>steam_app_id=+5<NL>exe=a.exe<NL>
+bad	app with a space inside	steam_app_id	[a]<NL>title=T<NL>steam_app_id=1 2<NL>exe=a.exe<NL>
+bad	no exe	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>
+bad	exe with a folder	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=bin\a.exe<NL>
+bad	exe with a slash	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=bin/a.exe<NL>
+bad	exe that goes up	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=..a.exe<NL>
+bad	exe that is not an exe	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.bat<NL>
+bad	exe with a quote	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a".exe<NL>
+bad	exe with parentheses	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a(1).exe<NL>
+bad	exe with an ampersand	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a&b.exe<NL>
+bad	exe that is only an extension	exe	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=.exe<NL>
+bad	bad machine	machine	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>machine=arm<NL>
+bad	profile with a folder	profile	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>profile=..\x.ini<NL>
+bad	profile not ini	profile	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>profile=x.txt<NL>
+bad	profile that is only an extension	profile	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>profile=.ini<NL>
+bad	key without a key	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=Convergence<NL>
+bad	key F13	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=X|F13<NL>
+bad	key F0	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=X|F0<NL>
+bad	key a letter	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=X|A<NL>
+bad	key without a label	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=|F1<NL>
+bad	label too long	key1	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1={x25}|F1<NL>
+bad	repeated key	key2	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=A|F1<NL>key2=B|F1<NL>
+bad	repeated key in another case	key2	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>key1=A|F1<NL>key2=B|f1<NL>
+bad	shim that is not xinput	shim_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>shim_files=d3d11.dll<NL>
+bad	shim with a folder	shim_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>shim_files=..\xinput1_4.dll<NL>
+bad	shim that is not a dll	shim_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>shim_files=xinput1_4.exe<NL>
+bad	manifest with a folder	fix_manifest	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_manifest=..\x.json<NL>
+bad	shim manifest with a folder	shim_manifest	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>shim_manifest=a/b.json<NL>
+bad	fix dir with a folder	fix_dir	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_dir=..<NL>
+bad	http fix	https	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=http://example.org/f.7z<NL>fix_sha256={sha}<NL>
+bad	ftp fix	https	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=ftp://example.org/f.7z<NL>fix_sha256={sha}<NL>
+bad	fix address with a space	https	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/a b.7z<NL>fix_sha256={sha}<NL>
+bad	fix address with a quote	https	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/a"b.7z<NL>fix_sha256={sha}<NL>
+bad	fix address with a backtick	https	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/a`b.7z<NL>fix_sha256={sha}<NL>
+bad	fix without a hash	fix_sha256	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>
+bad	short hash	fix_sha256	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256=abcd<NL>
+bad	hash that is not hex	fix_sha256	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={z64}<NL>
+bad	hash that is too long	fix_sha256	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}a<NL>
+bad	an address whose file name is not plain	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/Some%20Fix.7z<NL>fix_sha256={sha}<NL>
+bad	an address with no file name	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/<NL>fix_sha256={sha}<NL>
+bad	an address with only a host	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org<NL>fix_sha256={sha}<NL>
+bad	archive with a folder	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_archive=..\f.7z<NL>
+bad	inner archive with a folder	fix_inner	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_inner=a/b.7z<NL>
+bad	marker with a folder	fix_marker	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_marker=..\d3dx.ini<NL>

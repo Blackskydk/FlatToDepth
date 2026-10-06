@@ -1,0 +1,11 @@
+LIBRARY xinput1_4
+EXPORTS
+    XInputGetState=FtdGetState
+    XInputSetState=FtdSetState
+    XInputGetCapabilities=FtdGetCapabilities
+    XInputEnable=FtdEnable
+    XInputGetBatteryInformation=FtdGetBattery
+    XInputGetKeystroke=FtdGetKeystroke
+    XInputGetAudioDeviceIds=FtdGetAudio
+    XInputGetDSoundAudioDeviceGuids=FtdGetDSound
+    XInputGetStateEx=FtdGetState @100
