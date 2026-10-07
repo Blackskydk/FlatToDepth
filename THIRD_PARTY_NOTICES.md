@@ -10,7 +10,7 @@ licensed `Apache-2.0 OR MIT`. Source and licenses: <https://github.com/KhronosGr
 
 ## Not included: the Geo-11 stereo fixes
 
-The 3D effect comes from a **Geo-11 stereo fix** made for each game. The two the catalog can install were made by
+The 3D effect comes from a **Geo-11 stereo fix** made for each game. The three the catalog can install were made by
 Alejandro Rodriguez Solis ([HelixMod](https://helixmod.blogspot.com)). They are licensed for **personal, non-commercial use only** and may
 not be redistributed or re-uploaded, so **they are not part of this repository or any release**. The installer
 (`scripts/install-geo11.ps1`) downloads them from their author's own host onto your PC only after you accept the
@@ -22,6 +22,11 @@ The fixes the catalog installs today:
 
 - Ori and the Blind Forest: <https://helixmod.blogspot.com/2015/04/ori-and-blind-forest-dx11.html>
 - Ori and the Will of the Wisps: <https://helixmod.blogspot.com/2021/04/ori-and-will-of-wisps-3d-vision-ready.html>
+- Hollow Knight: <https://s3.amazonaws.com/masterotaku/Hollow+Knight/Hollow_Knight_geo11_fix.7z> (its own `d3d11.dll` does not start with the current game, so the installer replaces it and `nvapi64.dll` with the files of Geo-11 0.7.11 by davegl1234, from <https://bo3b.s3.us-east-1.amazonaws.com/geo-11/geo-11_v0.7.11.7z>, checked against a pinned SHA256 as well)
+
+## Not included: the ViGEmBus driver and SteamVR
+
+The VR controllers reach the games as a virtual Xbox 360 controller made through the **ViGEmBus** driver by Nefarius (<https://github.com/nefarius/ViGEmBus>). It is not part of this repository or any release: you install it once yourself. FlatToDepth only talks to the driver's device interface (its own C++ code, `src/virtual_pad.hpp`). The SteamVR game-theater helper uses the `openvr_api.dll` that comes with your own SteamVR installation; nothing of it is copied.
 
 ## Acknowledgements
 
@@ -32,6 +37,6 @@ protocol was studied from those projects; FlatToDepth's code is its own C++ impl
 ## Trademarks and no affiliation
 
 Every game name belongs to its owner; for example *Ori and the Blind Forest* and *Ori and the Will of the Wisps* belong to
-Moon Studios and Xbox Game Studios / Microsoft. Steam, SteamVR and Steam Frame belong to Valve. FlatToDepth is an
+Moon Studios and Xbox Game Studios / Microsoft, and *Hollow Knight* to Team Cherry. Steam, SteamVR and Steam Frame belong to Valve. FlatToDepth is an
 independent project, is not affiliated with or endorsed by any of them, and contains no game assets or code. You need to
 own the games.

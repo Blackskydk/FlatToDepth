@@ -50,11 +50,11 @@ None of these need a headset. They cannot show that stereo looks right or that a
 Continuous integration (`.github/workflows/build.yml`) builds and tests every push. To publish a release, tag a commit:
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
-The workflow then builds everything, runs `scripts/package.ps1`, and publishes `FlatToDepth-v0.2.0-win64.zip` and its SHA256 on the GitHub Releases page. You can try the packaging locally with `./scripts/package.ps1 -Version dev`; the zip appears in `dist\`.
+The workflow then builds everything, runs `scripts/package.ps1`, and publishes `FlatToDepth-v0.3.0-win64.zip` and its SHA256 on the GitHub Releases page. You can try the packaging locally with `./scripts/package.ps1 -Version dev`; the zip appears in `dist\`.
 
 The stereo fixes are never part of the repository or the release (their license forbids redistribution); `games.catalog.ini` holds their download addresses and pinned SHA256 fingerprints. If an author re-uploads a fix, the fingerprint must be updated there after checking the new file.
 
@@ -62,7 +62,7 @@ The stereo fixes are never part of the repository or the release (their license 
 
 | Path | What |
 | --- | --- |
-| `src/` | the program (`main.cpp`), the pointer and menu logic (`window_control.hpp`, `game_picker.hpp`), the game list and Steam records (`games.hpp`, `catalog.hpp`, `scan.hpp`), UI artwork (`ui_*.hpp`, `picker_art.hpp`), and the controller shim (`xinput_proxy.cpp`) |
+| `src/` | the program (`main.cpp`), the pointer and menu logic (`window_control.hpp`, `game_picker.hpp`), the game list and Steam records (`games.hpp`, `catalog.hpp`, `scan.hpp`), UI artwork (`ui_*.hpp`, `picker_art.hpp`), the tools panel (`tools_panel.hpp`, `tools_art.hpp`, `tools_help.hpp`, `fix_keys.hpp`), the curved screen (`curved_screen.hpp`), the virtual Xbox controller (`virtual_pad.hpp`), the SteamVR game-theater helper (`steamvr_settings.hpp`), and the optional controller shim (`xinput_proxy.cpp`) |
 | `tests/` | the tests |
 | `scripts/` | build, package, install and launch scripts |
 | `docs/` | guides, the [technical assessment](assessment.md) and [testing notes](testing.md) |

@@ -12,9 +12,10 @@ FlatToDepth shows DirectX 11 games that have a Geo-11 stereo fix as a large ster
 | VR | A headset that works with **SteamVR** (tested: Steam Frame) |
 | Steam | Steam with **SteamVR** installed (Steam library, Tools) |
 | Games | At least one supported game installed from Steam: the games it ships with, or others from the [catalog](GAMES.md) |
-| Disk | A few MB for FlatToDepth, plus each game's stereo fix (about 70 MB for Blind Forest, 130 MB for Will of the Wisps) |
+| Controllers | The free **ViGEmBus** driver, installed once (see below) |
+| Disk | A few MB for FlatToDepth, plus each game's stereo fix (tens to about a hundred MB each) |
 
-You do not need to install anything else: no Visual Studio, no drivers.
+The one thing to install is the free **ViGEmBus** driver, which lets FlatToDepth present your VR controllers to the games as an ordinary Xbox controller (get it from [github.com/nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) and run its installer once; `Install.cmd` tells you whether it is there). Nothing else: no Visual Studio, no other drivers.
 
 ## Install
 
@@ -45,7 +46,7 @@ The installer:
 
 Everything it adds is recorded, so **`Uninstall.cmd`** can remove it again.
 
-**About the stereo fix.** The 3D effect comes from a *Geo-11* fix made for each game. The two in the catalog today were made by Alejandro Rodriguez Solis ([HelixMod](https://helixmod.blogspot.com)). Such fixes are licensed for **personal, non-commercial use only** and may not be redistributed, so FlatToDepth does not include them. The installer downloads them straight from the author's own page onto your PC, checks the download against a known fingerprint (SHA256), and asks you to type `YES` to accept the license. A copy of the license is saved in the game folder as `LICENSE.txt`.
+**About the stereo fix.** The 3D effect comes from a *Geo-11* fix made for each game. The three in the catalog today were made by Alejandro Rodriguez Solis ([HelixMod](https://helixmod.blogspot.com)); for Hollow Knight the installer also takes the current Geo-11 driver files (`d3d11.dll`, `nvapi64.dll`) from their author, davegl1234, because the fix's own copy does not start with the current game. Such fixes are licensed for **personal, non-commercial use only** and may not be redistributed, so FlatToDepth does not include them. The installer downloads them straight from the author's own page onto your PC, checks the download against a known fingerprint (SHA256), and asks you to type `YES` to accept the license. A copy of the license is saved in the game folder as `LICENSE.txt`.
 
 To run the installer without questions (it still needs your acceptance of the license): `Install.cmd -Yes -AcceptFixLicense`. To see what it would do without changing anything: `Install.cmd -DryRun`. To set up only some games: `Install.cmd -Games blindforest,wotw` (the names are the section names in the catalog).
 
@@ -83,11 +84,11 @@ The game then starts normally, and FlatToDepth starts alongside it when SteamVR 
 
 ## Updating
 
-Download the new zip and extract it **over the same folder** (agree to replace files). Your settings (`flattodepth*.ini`, `games.user.ini`) and the install records (`state\`) are kept. Run `Install.cmd` again so the controller shims are updated too.
+Download the new zip and extract it **over the same folder** (agree to replace files). Your settings (`flattodepth*.ini`, `games.user.ini`) and the install records (`state\`) are kept. Run `Install.cmd` again so the controller setup is brought up to date too (a replacement-DLL shim left by an earlier version is removed from the game folders).
 
 ## Uninstalling
 
-Close the games, double-click **`Uninstall.cmd`** (removes the stereo fix and the controller shim from the game folders, but only files that are still exactly as installed), then delete the FlatToDepth folder. If you added it to Steam, remove that entry too.
+Close the games, double-click **`Uninstall.cmd`** (removes the stereo fix and any controller shim from the game folders, but only files that are still exactly as installed, and puts back SteamVR's game-theater setting if a crash left it off), then delete the FlatToDepth folder. If you added it to Steam, remove that entry too.
 
 ## Troubleshooting
 
@@ -100,11 +101,12 @@ Logs are in the FlatToDepth folder: `logs\flattodepth.log` (always) and `logs\la
 | **Depth looks inside-out** (far things pop out) | Press **Swap eyes** in the tools panel (hold both grips and press **B**), or hold both grips and press **X**. Or open the game's settings file (`flattodepth-<game>.ini`, for example `flattodepth-blindforest.ini`) in Notepad, change `swap_eyes=1` to `swap_eyes=0`, save, and restart FlatToDepth. |
 | **The picture is cut off, or has black bars** | FlatToDepth crops to a centred 16:9 picture by default (most games are). For another shape set `crop_aspect` in the settings file; `0` shows everything. |
 | **Controllers do not play the game** | `logs\flattodepth.log` should show `virtual_pad=on` in the controller line; if it says `off`, install the ViGEmBus driver (the log says why). The game window must be the active window on the desktop. A different headset may not have all the buttons. |
+| **The flat game's own window opens in front of the VR screen** | FlatToDepth turns SteamVR's game theater off for this; check that `[steamvr] hide_game_theater` is `1` in `flattodepth.ini` and that `logs\steamvr-theater.log` shows it ran. |
 | **The screen is gone, huge, or far away** | Hold **both grips and press A** to bring it back in front of you. Or delete the settings file to reset it. |
 | **The installer says a file "would be replaced"** | A stereo fix was installed by hand earlier. FlatToDepth leaves it alone; make sure its `d3dxdm.ini` has `direct_mode = katanga_vr`. |
 | **"does not match the pinned SHA256"** | The author updated the download. Nothing was installed. Please [open an issue](https://github.com/Blackskydk/FlatToDepth/issues) so the fingerprint can be updated. |
 | **"Could not unpack ... 7z"** | Older Windows 10 cannot open `.7z` files with its built-in tools. Install [7-Zip](https://www.7-zip.org) and run the installer again. |
-| **Antivirus complains about a DLL** | The stereo fix's `d3d11.dll` and FlatToDepth's `xinput*.dll` are *wrapper* DLLs that sit in the game folder, which looks like game hacking to some scanners. Only use this with single-player games that have no anti-cheat (both Ori games are). If your antivirus quarantines them, add an exception for the game folder. |
+| **Antivirus complains about a DLL** | The stereo fix's `d3d11.dll` (and `nvapi64.dll`) are *wrapper* DLLs that sit in the game folder, which looks like game hacking to some scanners. Only use this with single-player games that have no anti-cheat (both Ori games are). If your antivirus quarantines them, add an exception for the game folder. |
 | **A game I added is not in the menu** | The menu lists games Steam says are installed. Run `bin\FlatToDepth.exe --scan` to see what FlatToDepth sees, and check `logs\flattodepth.log` for `Games:` lines: a mistake in `games.user.ini` skips that game and says why. See [GAMES.md](GAMES.md). |
 | **Choosing a game in the menu does nothing** | FlatToDepth asks Steam to start it, so Steam must be running and signed in. You can also start the game yourself; FlatToDepth notices it. |
 
@@ -114,7 +116,7 @@ Still stuck? [Open an issue](https://github.com/Blackskydk/FlatToDepth/issues/ne
 
 - FlatToDepth is open source; every release zip is built from the code in this repository by GitHub Actions, and you can read the build log on the release's Actions run.
 - It changes only the game folders you choose and its own folder, and keeps a record of every file it adds.
-- It never edits Windows settings, the registry, or Steam's files.
+- It never edits Windows settings, the registry, or Steam's files. The one setting it touches outside its own folders is SteamVR's game theater, which it turns off while it runs (so the flat game's own window does not open in front of the VR screen) and puts back afterwards; `hide_game_theater=0` in `flattodepth.ini` leaves SteamVR alone.
 - It is not signed with a code-signing certificate, which is why Windows shows its warning.
 
 ## Build it yourself

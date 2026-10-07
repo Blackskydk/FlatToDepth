@@ -122,7 +122,7 @@ Entries are checked by the project's tests (`tests/catalog_test.cpp`, `tests/cat
 - FlatToDepth cannot make a game 3D by itself. Without a fix made for it, a game in the list does not look right.
 - The VR controllers need the ViGEmBus driver (below). Keyboard-only games are not covered.
 - Only DirectX 11 games, one game at a time, and only on Windows with Steam.
-- Everything here has so far been verified for the two Ori games only. Treat any other game as an experiment until someone has played it.
+- The 3D has been verified in a headset for the Ori games. In Will of the Wisps and Hollow Knight the controllers and rumble have been confirmed on a Steam Frame; their 3D has had little testing. Treat any other game as an experiment until someone has played it.
 
 ## Controllers: one virtual pad for every game
 
@@ -141,4 +141,4 @@ Hollow Knight has a Geo-11 fix by masterotaku, but it was found not to start wit
 Two things to know:
 
 - **Controllers.** Unity 6 reads controllers through `Windows.Gaming.Input`, not XInput, which a shim could never reach; the virtual pad needs no help from the game (see [Controllers](#controllers-one-virtual-pad-for-every-game)). Without the ViGEmBus driver the VR controllers still move and resize the screen and open the tools panel, but a keyboard or a gamepad on the PC plays the game.
-- **Not tried in a headset.** The game starts and exports its picture with the newer driver; how the fix's shaders behave with it has not been checked.
+- **3D not yet confirmed in a headset.** The game starts, exports its picture with the newer driver and plays with the VR controllers; how the fix's shaders look with the newer driver has not been checked.
