@@ -27,7 +27,13 @@ inline void log(const std::string& s) {
 }
 inline void startLog(const char* name) {
     std::filesystem::create_directories("logs");
-    logFile.open(std::filesystem::path("logs") / name, std::ios::trunc);
+    const auto path=std::filesystem::path("logs") / name;
+    // Keep the last run's log as <name>.previous: what went wrong is usually in the run before the one that is starting now,
+    // and starting again would otherwise wipe it. A log with nothing in it is not worth keeping.
+    std::error_code ec;
+    if (std::filesystem::exists(path,ec) && std::filesystem::file_size(path,ec)>200)
+        std::filesystem::rename(path,path.parent_path() / (path.stem().string()+".previous"+path.extension().string()),ec);
+    logFile.open(path, std::ios::trunc);
 }
 inline std::string hex(uint64_t n) { std::ostringstream s; s << "0x" << std::hex << n; return s.str(); }
 inline void hr(HRESULT result, const char* call) {

@@ -1,6 +1,6 @@
 # Installing FlatToDepth
 
-FlatToDepth shows DirectX 11 games that have a Geo-11 stereo fix as a large stereoscopic 3D screen in your VR headset, and lets your VR controllers play them. It comes ready for **Ori and the Blind Forest: Definitive Edition** and **Ori and the Will of the Wisps**; other games are added through the [games catalog](GAMES.md). This page takes you from nothing to playing. It should take about ten minutes.
+FlatToDepth shows DirectX 11 games that have a Geo-11 stereo fix as a large stereoscopic 3D screen in your VR headset, and lets your VR controllers play them. It comes ready for **Ori and the Blind Forest: Definitive Edition**, **Ori and the Will of the Wisps** and **Hollow Knight**; other games are added through the [games catalog](GAMES.md). This page takes you from nothing to playing. It should take about ten minutes.
 
 > **Status:** experimental, hobby-grade software. It was built and tested on a **Valve Steam Frame** with SteamVR, and Ori and the Blind Forest is the most thoroughly tested game. Other SteamVR headsets may work with limited controller support; they are untested.
 
@@ -11,7 +11,7 @@ FlatToDepth shows DirectX 11 games that have a Geo-11 stereo fix as a large ster
 | PC | Windows 10 (a recent build) or Windows 11, 64-bit, with a GPU that runs the game and SteamVR together |
 | VR | A headset that works with **SteamVR** (tested: Steam Frame) |
 | Steam | Steam with **SteamVR** installed (Steam library, Tools) |
-| Games | At least one supported game installed from Steam: the Ori games it ships with, or others from the [catalog](GAMES.md) |
+| Games | At least one supported game installed from Steam: the games it ships with, or others from the [catalog](GAMES.md) |
 | Disk | A few MB for FlatToDepth, plus each game's stereo fix (about 70 MB for Blind Forest, 130 MB for Will of the Wisps) |
 
 You do not need to install anything else: no Visual Studio, no drivers.
@@ -41,7 +41,7 @@ The installer:
 1. checks that SteamVR is installed and is the active OpenXR runtime (it tells you how to fix it if not; it never changes system settings),
 2. finds the supported games (the catalog, plus any in your `games.user.ini`) in your Steam libraries and asks which to set up,
 3. for each one, downloads the **Geo-11 stereo fix** from its author, after you accept the author's license (see below), when the game's entry says where to get one,
-4. adds FlatToDepth's small controller shim (`xinput` DLL) next to the game's exe, so your VR controllers act as a gamepad.
+4. makes the VR controllers work as a gamepad in every game: nothing goes in the game folder, FlatToDepth makes a virtual Xbox controller while the game runs. That needs the free **ViGEmBus** driver; the installer tells you if it is missing (see [Controllers](GAMES.md#controllers-one-virtual-pad-for-every-game)). A replacement-DLL shim from an earlier version is removed.
 
 Everything it adds is recorded, so **`Uninstall.cmd`** can remove it again.
 
@@ -99,7 +99,7 @@ Logs are in the FlatToDepth folder: `logs\flattodepth.log` (always) and `logs\la
 | **The game starts, but I see only "Waiting for ... to start drawing"** | The stereo fix is missing or not in `katanga_vr` mode. Re-run `Install.cmd`. Only one 3D exporter can run at a time: close other VR-screen or 3D tools. |
 | **Depth looks inside-out** (far things pop out) | Press **Swap eyes** in the tools panel (hold both grips and press **B**), or hold both grips and press **X**. Or open the game's settings file (`flattodepth-<game>.ini`, for example `flattodepth-blindforest.ini`) in Notepad, change `swap_eyes=1` to `swap_eyes=0`, save, and restart FlatToDepth. |
 | **The picture is cut off, or has black bars** | FlatToDepth crops to a centred 16:9 picture by default (most games are). For another shape set `crop_aspect` in the settings file; `0` shows everything. |
-| **Controllers do not play the game** | Restart the game (it loads the controller shim at startup). The game window must be the active window on the desktop, and `logs\flattodepth.log` should show `game_XInput_reads` growing. A different headset may not have all the buttons. |
+| **Controllers do not play the game** | `logs\flattodepth.log` should show `virtual_pad=on` in the controller line; if it says `off`, install the ViGEmBus driver (the log says why). The game window must be the active window on the desktop. A different headset may not have all the buttons. |
 | **The screen is gone, huge, or far away** | Hold **both grips and press A** to bring it back in front of you. Or delete the settings file to reset it. |
 | **The installer says a file "would be replaced"** | A stereo fix was installed by hand earlier. FlatToDepth leaves it alone; make sure its `d3dxdm.ini` has `direct_mode = katanga_vr`. |
 | **"does not match the pinned SHA256"** | The author updated the download. Nothing was installed. Please [open an issue](https://github.com/Blackskydk/FlatToDepth/issues) so the fingerprint can be updated. |

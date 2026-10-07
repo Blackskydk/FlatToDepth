@@ -31,6 +31,23 @@ inline EyeSlice eyeSlice(UINT eye,UINT visibleWidth,UINT shift,float screenWidth
 // --- Ambient glow ------------------------------------------------------------------------------------------------
 constexpr uint32_t GlowTex=128;        // the glow texture is GlowTex x GlowTex; it is a soft gradient, so it stays small and cheap to redraw
 constexpr float GlowMargin=0.55f;      // how far the glow reaches beyond each edge, in picture heights
+constexpr float GlowGap=0.3f;          // metres behind the picture that the glow layer sits, see glowPlacement()
+constexpr float GlowSettleSeconds=1.5f;// how long the glow takes to follow the picture's colours (a time constant, not a delay)
+
+// The glow layer used to lie in exactly the picture's plane, and the compositor cannot say which of two coplanar layers is
+// in front, so it can pick differently from one frame to the next. The glow now sits GlowGap behind the picture and is
+// grown by the same ratio, so it covers the same angles as before.
+struct GlowPlacement { float back; float grow; };
+inline GlowPlacement glowPlacement(float distance) {
+    distance=std::max(distance,0.5f);
+    return {GlowGap,(distance+GlowGap)/distance};
+}
+// How far a reading `seconds` after the previous one moves the glow towards the picture's colours. The glow follows the
+// scene's overall mood, not its frames, so it is smoothed over about a second and a half: a lively scene must not make
+// the whole background flash.
+inline float glowBlend(float seconds) {
+    return 1-std::exp(-std::clamp(seconds,0.0f,1.0f)/GlowSettleSeconds);
+}
 
 // Average colour of the picture on a small grid, smoothed over time so a flickering scene does not flicker the room.
 struct GlowState {
@@ -83,8 +100,12 @@ inline void renderGlow(std::vector<uint32_t>& px,const GlowState& state,float st
         const float qx=((static_cast<float>(tx)+0.5f)/static_cast<float>(GlowTex)-0.5f)*spanX,qy=(0.5f-(static_cast<float>(ty)+0.5f)/static_cast<float>(GlowTex))*spanY;
         const float dx=std::max(std::fabs(qx)-aspect/2,0.0f),dy=std::max(std::fabs(qy)-0.5f,0.0f);
         const float reach=std::min(std::sqrt(dx*dx+dy*dy)/GlowMargin,1.0f);
-        const float alpha=strength*(1-reach)*(1-reach);
-        if (alpha<=0.002f) continue;
+        // Behind the picture the glow is fully transparent (its colour is kept so the edge blends smoothly): the picture
+        // hides that part anyway, and if the compositor ever drew the glow over the picture instead of under it, a see-through
+        // middle means nothing is wrong with the picture. Only the wash around the edges is ever visible.
+        const bool behindPicture=dx<=0 && dy<=0;
+        const float alpha=behindPicture ? 0.0f : strength*(1-reach)*(1-reach);
+        if (!behindPicture && alpha<=0.002f) continue;
         const float cx=std::clamp(qx,-aspect/2,aspect/2),cy=std::clamp(qy,-0.5f,0.5f);
         float rgb[3]; state.sample((cx/aspect+0.5f)*static_cast<float>(state.w),(0.5f-cy)*static_cast<float>(state.h),rgb);
         ui::detail::Px p{rgb[0],rgb[1],rgb[2],alpha};

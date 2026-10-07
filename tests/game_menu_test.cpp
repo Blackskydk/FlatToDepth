@@ -59,7 +59,7 @@ static void dump(const char* path) {
     auto two=makeVisual(2); two.entries[0]={L"Ori and the Blind Forest",L"Definitive Edition",true}; two.entries[1]={L"Ori and the Will of the Wisps",L"",true};
     two.hint=L"Point at a game and pull the trigger or squeeze the grip";
     states.push_back(two);
-    auto grid=makeVisual(8); const wchar_t* names[]{L"Ori and the Blind Forest",L"Ori and the Will of the Wisps",L"Some Longer Game Title Here",L"Hollow Knight",L"Hades",L"Cuphead",L"Celeste",L"Dead Cells"};
+    auto grid=makeVisual(8); const wchar_t* names[]{L"Ori and the Blind Forest",L"Ori and the Will of the Wisps",L"Some Longer Game Title Here",L"Hollow Knight",L"Another Game",L"Cuphead",L"Celeste",L"Dead Cells"};
     for (size_t i=0;i<8;++i) { grid.entries[i].title=names[i]; grid.entries[i].caption=i==0 ? L"Definitive Edition" : L""; }
     grid.hover=1; states.push_back(grid);
     grid.page=1; grid.hover=-1; grid.nextHover=false; grid.prevHover=true; states.push_back(grid);

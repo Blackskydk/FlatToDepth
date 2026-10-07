@@ -6,7 +6,16 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . "$PSScriptRoot\games.ps1"
 $info = Get-FtdGame $Game
+if ($info.VirtualPad) {
+    # This game gets the VR controllers as a virtual Xbox controller in Windows (ViGEmBus), so no shim DLL may stand in its folder:
+    # a shim answers "no controller" for every pad and would hide the virtual one. Remove one that an earlier version installed.
+    if (Test-Path -LiteralPath (Join-Path $FtdState $info.ShimManifest)) { & "$PSScriptRoot\uninstall-gamepad.ps1" -Game $Game }
+    if (Test-FtdVirtualGamepadDriver) { Write-Output "$($info.Title) gets the VR controllers as a virtual Xbox controller (ViGEmBus is installed); nothing is added to the game folder." }
+    else { Write-Output "$($info.Title) needs the ViGEmBus driver for the VR controllers (a virtual Xbox controller), and it is not installed. FlatToDepth does not install drivers; see docs\GAMES.md. Until then the game can be played with a gamepad or keyboard on the PC." }
+    return
+}
 $gameDir = Resolve-FtdGameDirectory $info $GameDirectory
+$gameDir = Get-FtdInstallDirectory $info $gameDir      # from here on: the folder that holds the program, where the shim goes
 $exe = Join-Path $gameDir $info.Exe
 if (-not (Test-Path -LiteralPath $exe)) { throw "Expected $($info.Exe) in the game directory." }
 if (-not $info.Machine) { throw "$($info.Title) does not say whether it is x86 or x64: add machine=x86 or machine=x64 to its catalog entry, so the right controller shim is used." }

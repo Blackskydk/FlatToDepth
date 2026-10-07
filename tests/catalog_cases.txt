@@ -73,3 +73,26 @@ bad	an address with only a host	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>
 bad	archive with a folder	fix_archive	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_archive=..\f.7z<NL>
 bad	inner archive with a folder	fix_inner	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_inner=a/b.7z<NL>
 bad	marker with a folder	fix_marker	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/f.7z<NL>fix_sha256={sha}<NL>fix_marker=..\d3dx.ini<NL>
+good	a program in a subfolder, and a fix taken from a folder inside its download		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>exe_dir=x64<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>fix_root=x64<NL>
+bad	exe_dir with a slash	exe_dir	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>exe_dir=x64\bin<NL>
+bad	exe_dir that climbs out of the game folder	exe_dir	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>exe_dir=..<NL>
+bad	exe_dir with a drive	exe_dir	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>exe_dir=C:<NL>
+bad	fix_root with a slash	fix_root	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>fix_root=x64/bin<NL>
+bad	fix_root that climbs out of the download	fix_root	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>fix_root=..<NL>
+good	a fix with a newer driver laid over it		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=https://example.org/dir/Geo%2D11.7z<NL>driver_sha256={SHA}<NL>driver_root=x64<NL>driver_files=d3d11.dll, nvapi64.dll<NL>driver_author=Somebody<NL>
+bad	a driver without a fix to lay it over	needs fix_url	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>driver_url=https://example.org/dir/d.7z<NL>driver_sha256={sha}<NL>driver_files=d3d11.dll<NL>
+bad	a driver address that is not https	driver_url	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=http://example.org/dir/d.7z<NL>driver_sha256={sha}<NL>driver_files=d3d11.dll<NL>
+bad	a driver without its SHA256	driver_sha256	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=https://example.org/dir/d.7z<NL>driver_files=d3d11.dll<NL>
+bad	a driver without a list of files	driver_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=https://example.org/dir/d.7z<NL>driver_sha256={sha}<NL>
+bad	a driver file that names a folder	driver_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=https://example.org/dir/d.7z<NL>driver_sha256={sha}<NL>driver_files=..\d3d11.dll<NL>
+bad	a driver root with a slash	driver_root	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_url=https://example.org/dir/d.7z<NL>driver_sha256={sha}<NL>driver_root=x64/bin<NL>driver_files=d3d11.dll<NL>
+bad	driver files with no driver_url	driver_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>fix_url=https://example.org/dir/fix.7z<NL>fix_sha256={sha}<NL>driver_files=d3d11.dll<NL>
+good	a virtual gamepad		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>machine=x64<NL>gamepad=virtual<NL>
+good	the shim, said out loud		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>machine=x64<NL>gamepad=shim<NL>shim_files=xinput1_4.dll<NL>
+bad	virtual gamepad with a shim	does not use shim_files	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>machine=x64<NL>gamepad=virtual<NL>shim_files=xinput1_4.dll<NL>
+bad	unknown gamepad route	gamepad must be	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>gamepad=xbox<NL>
+bad	gamepad in the wrong case	gamepad must be	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>gamepad=Virtual<NL>
+bad	empty gamepad	gamepad must be	[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>gamepad=<NL>
+good	no gamepad line and no shim: the virtual pad		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>
+good	a shim named without a gamepad line is a shim entry		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>machine=x64<NL>shim_files=xinput1_4.dll<NL>
+good	gamepad=shim on its own is accepted (the installer asks for the DLL names)		[a]<NL>title=T<NL>steam_app_id=1<NL>exe=a.exe<NL>gamepad=shim<NL>

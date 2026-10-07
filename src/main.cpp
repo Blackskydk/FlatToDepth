@@ -27,6 +27,8 @@ static void xrCheck(XrResult r, const char* call) {
 #include "config.hpp"
 #include "keys.hpp"
 #include "screen_layer.hpp"
+#include "curved_screen.hpp"
+#include "steamvr_settings.hpp"
 #include "scan.hpp"
 
 struct EyeChain {
@@ -56,6 +58,14 @@ class App {
     ToolsPanel toolsPanel_;
     fx::GlowSampler glowSampler_;
     fx::GlowState glow_,glowShown_;
+    // The curved screen, for a runtime that has no curved layer (SteamVR): drawn by FlatToDepth into a projection layer,
+    // one swapchain per eye, made the first time a curved screen is shown.
+    curved::Renderer curved_;
+    std::array<EyeChain,2> projChains_;
+    std::array<std::vector<ComPtr<ID3D11RenderTargetView>>,2> projTargets_;
+    uint32_t projW_=0,projH_=0;
+    DXGI_FORMAT sourceFormat_=DXGI_FORMAT_UNKNOWN;
+    bool projectionFailed_=false;
     KeyPresser keys_;
     WindowControl::Mode lastMode_=WindowControl::Mode::Idle;
     UiTarget lastHover_[2]{UiTarget::None,UiTarget::None};
@@ -68,7 +78,10 @@ class App {
     XrPosef headPose_{{0,0,0,1},{0,0,0}};
     bool toolsChordHeld_=false,swapChordHeld_=false;
     std::wstring toolsStatus_; bool toolsWarn_=false;
-    std::chrono::steady_clock::time_point toolsStatusUntil_{},nextGlowUpload_{},nextRumbleCheck_{};
+    std::vector<fixkeys::Key> fixKeys_;         // what the active game's stereo fix says its shortcut keys do (from its d3dx.ini)
+    std::map<WORD,int> keyPresses_;             // how many times the panel has pressed each of them since the game started
+    std::chrono::steady_clock::time_point toolsStatusUntil_{},nextGlowUpload_{},lastGlowRead_{},nextRumbleCheck_{};
+    uint32_t glowUploads_=0;     // glow textures uploaded since the last periodic log line
     bool running_=false, exit_=false, recenter_=true;
     XrTime pendingRecenter_=0;
     XrPosef screen_{{0,0,0,1},{0,0,-2.5f}};
@@ -105,6 +118,7 @@ public:
         if (input_) input_->shutdown();
         keys_.releaseNow();
         overlay_.destroy(); pickerOverlay_.destroy(); toolsOverlay_.destroy(); glowOverlay_.destroy();
+        destroyProjection();
         for (auto& c:chains_) c.destroy();
         if (head_) xrDestroySpace(head_);
         if (local_) xrDestroySpace(local_);
@@ -131,7 +145,7 @@ public:
         if (frameProfile) enabled.push_back("XR_VALVE_frame_controller_interaction");
         if (cylinder) enabled.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
         cylinderOk_=cylinder;
-        if (!cylinder) log("Runtime has no XR_KHR_composition_layer_cylinder: the screen stays flat");
+        if (!cylinder) log("Runtime has no XR_KHR_composition_layer_cylinder: a curved screen is drawn by FlatToDepth itself instead");
         XrInstanceCreateInfo ci{XR_TYPE_INSTANCE_CREATE_INFO};
         strcpy_s(ci.applicationInfo.applicationName,"FlatToDepth");
         strcpy_s(ci.applicationInfo.engineName,"FlatToDepth native D3D11");
@@ -160,6 +174,8 @@ public:
         XR(xrEnumerateViewConfigurationViews(instance_,system_,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,count,&count,views.data()));
         for (UINT i=0;i<count;++i) log("Recommended eye "+std::to_string(i)+"="+std::to_string(views[i].recommendedImageRectWidth)+"x"+
             std::to_string(views[i].recommendedImageRectHeight)+" samples="+std::to_string(views[i].recommendedSwapchainSampleCount));
+        projW_=std::min(views[0].recommendedImageRectWidth,systemProps_.graphicsProperties.maxSwapchainImageWidth);
+        projH_=std::min(views[0].recommendedImageRectHeight,systemProps_.graphicsProperties.maxSwapchainImageHeight);
         XR(xrEnumerateEnvironmentBlendModes(instance_,system_,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,0,&count,nullptr));
         std::vector<XrEnvironmentBlendMode> modes(count);
         XR(xrEnumerateEnvironmentBlendModes(instance_,system_,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,count,&count,modes.data()));
@@ -223,12 +239,14 @@ public:
         catch (const std::exception& e) { log("Tools panel disabled: "+std::string(e.what())); toolsOverlay_.destroy(); }
         try { glowOverlay_.initialize(session_,device_.Get(),context_.Get(),formats_); }
         catch (const std::exception& e) { log("Ambient glow disabled: "+std::string(e.what())); glowOverlay_.destroy(); }
+        // Only needed when the runtime has no curved layer of its own; if this PC cannot draw it either, the screen stays flat.
+        if (!cylinderOk_ && !curved_.initialize(device_.Get(),context_.Get())) log("Curved screen: not available, the screen stays flat");
     }
     void rebuild(ID3D11Texture2D* source) {
         for (auto& c:chains_) c.destroy(); snapshot_.Reset();
-        glowSampler_.reset(); glow_=fx::GlowState{}; glowShown_=fx::GlowState{}; glowOverlay_.invalidate();
+        glowSampler_.reset(); glow_=fx::GlowState{}; glowShown_=fx::GlowState{}; glowOverlay_.invalidate(); curved_.reset();
         if (!source) return;
-        D3D11_TEXTURE2D_DESC d{}; source->GetDesc(&d); layout_=StereoLayout::from(d).cropped(config_.cropAspect);
+        D3D11_TEXTURE2D_DESC d{}; source->GetDesc(&d); layout_=StereoLayout::from(d).cropped(config_.cropAspect); sourceFormat_=d.Format;
         if (!testMode_) config_.migrateWidth(static_cast<float>(layout_.visibleWidth())/layout_.width);
         require(layout_.visibleWidth()<=systemProps_.graphicsProperties.maxSwapchainImageWidth && layout_.height<=systemProps_.graphicsProperties.maxSwapchainImageHeight,
             "Source eye dimensions exceed runtime swapchain limits; reduce the game resolution");
@@ -303,13 +321,22 @@ public:
         menuGames_=have; menuEnabled_.assign(have.size(),1);
         for (const size_t g : missing) { if (menuGames_.size()>=picker::PerPage) break; menuGames_.push_back(g); menuEnabled_.push_back(0); }
     }
+    // How the VR controllers reach this game: a virtual Xbox controller in Windows when its entry says gamepad=virtual (made before
+    // the game looks for pads, so it is there from the start), otherwise through the shim in its folder.
+    void routeController(size_t index) {
+        if (!input_) return;
+        input_->useVirtualPad(Games[index].virtualPad);
+        if (Games[index].virtualPad && !input_->virtualPadProblem().empty()) {
+            notice_=L"The controllers cannot play this game yet: "+widen(input_->virtualPadProblem())+L". See docs\\GAMES.md."; noticeWarn_=true;
+        }
+    }
     // Switches to a game's profile (eye order, crop, window size and placement) and starts showing its picture.
     void activateGame(size_t index) {
         try {
             const auto path=profilePath(mainConfig_,index);
             ensureSettings(path);
             Config profile; profile.load(path);
-            config_=profile;
+            config_=profile; applyToolsOffset(); loadFixKeys(index);
         } catch (const std::exception& e) {
             log("Could not load the profile for "+std::string(Games[index].id)+": "+e.what());
             notice_=L"Could not read the settings for that game; see logs/flattodepth.log."; noticeWarn_=true;
@@ -321,6 +348,7 @@ public:
         game_=static_cast<int>(index); phase_=Phase::Active; notice_.clear(); noticeWarn_=false;
         recenter_=true; restorePlacement_=true; needRebuild_=true;
         log(std::string("Game active: ")+Games[index].id+" profile="+profilePath(mainConfig_,index).string());
+        routeController(index);
     }
     // The user picked a tile: start the game through Steam (launch options included) unless it is already running.
     void chooseGame(size_t index) {
@@ -332,10 +360,11 @@ public:
         }
         game_=static_cast<int>(index); phase_=Phase::Launching; launchDeadline_=std::chrono::steady_clock::now()+std::chrono::seconds(120);
         log(std::string("Launching ")+Games[index].id+" through Steam (app "+std::to_string(Games[index].steamAppId)+")");
+        routeController(index);
     }
     void returnToMenu(const wchar_t* why=nullptr) {
         phase_=Phase::Choose; game_=-1; picker_.invalidate(); windowControl_.reset();
-        toolsPanel_.hide(); if (input_) input_->clearGameMotors();
+        toolsPanel_.hide(); if (input_) { input_->clearGameMotors(); input_->useVirtualPad(false); }
         if (why) { notice_=why; noticeWarn_=true; } else { notice_.clear(); noticeWarn_=false; }
     }
     // Once a second: notice games starting or closing, however they were started.
@@ -386,11 +415,67 @@ public:
     }
     // The tools button and panel exist while a game is showing and the panel's texture could be made.
     bool toolsAllowed() const { return !testMode_ && game_>=0 && phase_==Phase::Active && toolsOverlay_.ready(); }
-    float activeRadius() const { return cylinderOk_ ? curveBase_ : 0.0f; }
+    // A curved screen is possible through the runtime's own cylinder layer, or drawn here when it has none.
+    bool curveAvailable() const { return cylinderOk_ || (curved_.ready() && !projectionFailed_); }
+    float activeRadius() const { return curveAvailable() ? curveBase_ : 0.0f; }
+    void destroyProjection() {
+        for (auto& t:projTargets_) t.clear();
+        for (auto& c:projChains_) c.destroy();
+    }
+    // The curved screen's images, made the first time they are needed. False means this PC or runtime cannot, and the
+    // screen stays flat.
+    bool ensureProjection() {
+        if (projChains_[0].handle) return true;
+        if (projectionFailed_ || !curved_.ready()) return false;
+        try {
+            auto offered=[&](DXGI_FORMAT f) { return std::find(formats_.begin(),formats_.end(),static_cast<int64_t>(f))!=formats_.end(); };
+            const DXGI_FORMAT format=offered(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+            require(offered(format),"the runtime offers no 8-bit sRGB format");
+            require(projW_>0 && projH_>0,"the runtime gave no eye size");
+            XrSwapchainCreateInfo ci{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+            ci.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT; ci.format=format; ci.sampleCount=1; ci.width=projW_; ci.height=projH_;
+            ci.faceCount=1; ci.arraySize=1; ci.mipCount=1;
+            D3D11_RENDER_TARGET_VIEW_DESC rd{}; rd.Format=format; rd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
+            for (int eye=0;eye<2;++eye) {
+                auto& c=projChains_[eye]; uint32_t n=0;
+                XR(xrCreateSwapchain(session_,&ci,&c.handle));
+                XR(xrEnumerateSwapchainImages(c.handle,0,&n,nullptr));
+                c.images.assign(n,{XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+                XR(xrEnumerateSwapchainImages(c.handle,n,&n,reinterpret_cast<XrSwapchainImageBaseHeader*>(c.images.data())));
+                projTargets_[eye].clear();
+                for (const auto& image:c.images) {
+                    ComPtr<ID3D11RenderTargetView> view; hr(device_->CreateRenderTargetView(image.texture,&rd,&view),"Create curved screen target");
+                    projTargets_[eye].push_back(view);
+                }
+            }
+            log("Curved screen: drawn by FlatToDepth into "+std::to_string(projW_)+"x"+std::to_string(projH_)+" images, DXGI_format="+std::to_string(format));
+            return true;
+        } catch (const std::exception& e) {
+            log("Curved screen unavailable: "+std::string(e.what()));
+            projectionFailed_=true; destroyProjection();
+            setStatus(L"The curved screen does not work on this PC, so the screen stays flat.",true);
+            return false;
+        }
+    }
     void updateCurveRadius() { curveBase_=curveRadius(pose::length(pose::sub(screen_.position,headPose_.position)),config_.curve); }
     void setStatus(const std::wstring& text,bool warn=false) {
         toolsStatus_=text; toolsWarn_=warn; toolsStatusUntil_=std::chrono::steady_clock::now()+std::chrono::seconds(7);
     }
+    // Reads the game's own d3dx.ini (next to its program, where the installer put it) to know what each shortcut key does.
+    void loadFixKeys(size_t index) {
+        fixKeys_.clear(); keyPresses_.clear();
+        try {
+            const auto folder=processDirectory(Games[index].process);
+            if (folder.empty()) return;
+            std::ifstream in(folder/L"d3dx.ini",std::ios::binary);
+            if (!in) return;
+            const std::string text((std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
+            fixKeys_=fixkeys::parse(text);
+            log("Read "+std::to_string(fixKeys_.size())+" shortcut key(s) from the fix's d3dx.ini for the tools panel");
+        } catch (const std::exception& e) { log(std::string("Could not read the fix's d3dx.ini: ")+e.what()); fixKeys_.clear(); }
+    }
+    // Where this game's tools panel was last carried to (or the default place in front of you).
+    void applyToolsOffset() { toolsPanel_.setOffset(config_.hasToolsOffset ? config_.toolsOffset : tools::DefaultOffset); }
     void toggleTools() {
         if (!toolsAllowed()) return;
         toolsPanel_.toggle(headPose_); toolsStatus_.clear();
@@ -407,8 +492,25 @@ public:
     ToolsVisual toolsVisual(const ToolsPanel::Output& out) const {
         ToolsVisual v;
         v.game=static_cast<size_t>(std::max(game_,0)); v.hover=out.hover; v.closeHover=out.closeHover; v.pressed=out.pressed[0] || out.pressed[1];
+        v.moveHover=out.moveHover; v.carrying=out.moving; v.faded=!(out.pointer[0] || out.pointer[1]);
+        // Per shortcut: how many steps it has / which one it is on. And what the hovered button does, in words.
+        const auto list=tools::items(v.game);
+        if (v.game<Games.size()) for (const auto& key : Games[v.game].keys) {
+            const auto presses=keyPresses_.find(key.vk);
+            v.keyDetail.push_back(fixkeys::caption(fixkeys::find(fixKeys_,key.vk),presses==keyPresses_.end() ? 0 : presses->second));
+        }
+        if (out.moveHover) v.help=tools::BarHelp;
+        else if (out.closeHover) v.help=tools::CloseHelp;
+        else if (out.hover>=0 && static_cast<size_t>(out.hover)<list.size()) {
+            const auto& item=list[static_cast<size_t>(out.hover)];
+            if (item.kind==tools::Kind::Key && v.game<Games.size() && item.key<Games[v.game].keys.size()) {
+                const GameKey& key=Games[v.game].keys[item.key];
+                const auto presses=keyPresses_.find(key.vk);
+                v.help=tools::explainKey(key.label,key.vk,fixkeys::find(fixKeys_,key.vk),presses==keyPresses_.end() ? 0 : presses->second);
+            } else v.help=tools::explainSetting(item.kind,curveAvailable(),input_ && input_->hapticsAvailable());
+        }
         v.swapEyes=config_.swap; v.curve=levelOf(CurveLevels,config_.curve); v.glow=config_.glow; v.floatWindow=levelOf(FloatLevels,config_.floatWindow);
-        v.rumble=config_.rumble; v.curveAvailable=cylinderOk_; v.rumbleAvailable=input_ && input_->hapticsAvailable();
+        v.rumble=config_.rumble; v.curveAvailable=curveAvailable(); v.rumbleAvailable=input_ && input_->hapticsAvailable();
         if (std::chrono::steady_clock::now()<toolsStatusUntil_) { v.status=toolsStatus_; v.warn=toolsWarn_; }
         return v;
     }
@@ -420,7 +522,7 @@ public:
             const std::string fkey="F"+std::to_string(key.vk-VK_F1+1);
             const std::wstring name=std::wstring(key.label)+L" (F"+std::to_wstring(key.vk-VK_F1+1)+L")";
             switch (keys_.press(key.vk,foregroundIs(Games[game_].process))) {
-            case KeyPresser::Result::Sent: setStatus(name+L" sent to the game."); log("Tools panel: sent "+fkey+" to the game"); break;
+            case KeyPresser::Result::Sent: ++keyPresses_[key.vk]; setStatus(name+L" sent to the game."); log("Tools panel: sent "+fkey+" to the game"); break;
             case KeyPresser::Result::NotInFront:
                 setStatus(L"The game window is not in front, so "+name+L" was not sent. Click the game on the desktop, then try again.",true);
                 log("Tools panel: "+fkey+" not sent, the game window does not have the keyboard"); break;
@@ -431,9 +533,10 @@ public:
         }
         case Kind::SwapEyes: swapEyes(); break;
         case Kind::Curve:
-            if (!cylinderOk_) { setStatus(L"This runtime has no curved screens (XR_KHR_composition_layer_cylinder).",true); break; }
+            if (!curveAvailable()) { setStatus(L"A curved screen does not work on this PC or runtime.",true); break; }
             config_.curve=CurveLevels[(levelOf(CurveLevels,config_.curve)+1)%4]; config_.save(L"screen",L"curvature",config_.curve);
-            updateCurveRadius(); setStatus(std::wstring(L"Curved screen: ")+tools::levelName(levelOf(CurveLevels,config_.curve))+L". At the wrong distance? Set curve_pose_at_axis=1 in the settings file.");
+            updateCurveRadius(); setStatus(std::wstring(L"Curved screen: ")+tools::levelName(levelOf(CurveLevels,config_.curve))+
+                (cylinderOk_ ? L". At the wrong distance? Set curve_pose_at_axis=1 in the settings file." : L"."));
             log("Curved screen from the headset: curvature="+std::to_string(config_.curve)); break;
         case Kind::Glow:
             config_.glow=!config_.glow; config_.save(L"screen",L"glow",config_.glow ? 1.0f : 0.0f);
@@ -456,7 +559,9 @@ public:
         catch (const std::exception& e) { log("Tools panel disabled: "+std::string(e.what())); toolsOverlay_.destroy(); toolsPanel_.hide(); }
     }
     void uploadGlow() {
-        try { glowOverlay_.upload(glow_,config_.glowStrength,static_cast<float>(layout_.visibleWidth())/static_cast<float>(layout_.height)); glowShown_=glow_; }
+        const float aspect=static_cast<float>(layout_.visibleWidth())/static_cast<float>(layout_.height);
+        curved_.setGlow(glow_,config_.glowStrength,aspect);   // keeps the glow the curved screen draws itself up to date too
+        try { glowOverlay_.upload(glow_,config_.glowStrength,aspect); glowShown_=glow_; ++glowUploads_; }
         catch (const std::exception& e) { log("Ambient glow disabled: "+std::string(e.what())); glowOverlay_.destroy(); }
     }
     // Every few frames queue a reading of the picture's average colours, fold in whatever the GPU has finished, and
@@ -464,9 +569,10 @@ public:
     void glowStep(uint64_t number) {
         if (!config_.glow || !glowOverlay_.ready() || !glowSampler_.ready() || !snapshot_) return;
         if (number%6==0) glowSampler_.capture(context_.Get(),snapshot_.Get(),layout_.box(0,config_.swap));
-        const float change=glowSampler_.read(context_.Get(),glow_,0.4f);
-        if (change<0) return;
         const auto now=std::chrono::steady_clock::now();
+        const float change=glowSampler_.read(context_.Get(),glow_,fx::glowBlend(std::chrono::duration<float>(now-lastGlowRead_).count()));
+        if (change<0) return;
+        lastGlowRead_=now;
         if (now>=nextGlowUpload_ && (!glowOverlay_.hasContent() || glow_.distance(glowShown_)>=2.5f)) {
             uploadGlow(); nextGlowUpload_=now+std::chrono::milliseconds(150);
         }
@@ -485,6 +591,8 @@ public:
             if (number==1 && pickerOverlay_.ready()) { uploadMenu(menuVisual(GamePicker::Output{},GamePicker::Mode::Choose)); if (pickerOverlay_.ready()) log("Game menu texture uploaded"); }
             if (number==1 && toolsOverlay_.ready()) { uploadTools(ToolsVisual{}); if (toolsOverlay_.ready()) log("Tools panel texture uploaded"); }
             std::array<ScreenLayer,MaxLayers> slot{};
+            XrCompositionLayerProjection projLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};    // the curved screen, when we draw it ourselves
+            std::array<XrCompositionLayerProjectionView,2> projViews{};
             std::array<const XrCompositionLayerBaseHeader*,MaxLayers> layers{};
             const uint32_t layerCap=std::min<uint32_t>(MaxLayers,systemProps_.graphicsProperties.maxLayerCount);
             uint32_t layerCount=0;
@@ -526,7 +634,10 @@ public:
             if (toolsPanel_.open() && toolsOk && controllers.focused && headOk) {
                 ToolsPanel::Hand hands[2];
                 for (int i=0;i<2;++i) hands[i]={controllers.pointerValid[i],controllers.pointer[i],controllers.click[i],0};
-                panelOut=toolsPanel_.update(hands,tools::items(static_cast<size_t>(game_)).size());
+                const float toolsDt=lastFrameTime_ ? static_cast<float>(state.predictedDisplayTime-lastFrameTime_)*1e-9f : 1.0f/90;
+                toolsPanel_.setPushPullRate(config_.pushPullRate);
+                panelOut=toolsPanel_.update(hands,tools::items(static_cast<size_t>(game_)).size(),head.pose,toolsDt);
+                if (panelOut.moved) { config_.saveToolsOffset(toolsPanel_.offset()); log("Tools panel moved; it will open there from now on"); }
                 for (int i=0;i<2;++i) if (panelOut.entered[i]) input_->tick(i,0.2f,10);
                 if (panelOut.clickHand>=0) input_->tick(panelOut.clickHand,0.5f,25);
                 if (panelOut.close) { toolsPanel_.hide(); log("Tools panel closed"); }
@@ -619,20 +730,56 @@ public:
                     // One snapshot for both eyes; legacy producer can still race this copy.
                     context_->CopyResource(snapshot_.Get(),source);
                     glowStep(number);
-                    const float radius=effectiveRadius(activeRadius(),config_.width);
+                    float radius=effectiveRadius(activeRadius(),config_.width);
+                    // A runtime with no curved layer gets the curved screen drawn by us; if that cannot be set up the screen stays flat.
+                    bool projected=radius>0 && !cylinderOk_ && ensureProjection();
+                    if (projected && !curved_.configure(layout_.visibleWidth(),layout_.height,sourceFormat_)) {
+                        log("Curved screen unavailable: could not make its picture textures");
+                        projectionFailed_=true; destroyProjection(); projected=false;
+                        setStatus(L"The curved screen does not work on this PC, so the screen stays flat.",true);
+                    }
+                    if (radius>0 && !cylinderOk_ && !projected) radius=0;
                     const float height=config_.width*static_cast<float>(layout_.height)/static_cast<float>(layout_.visibleWidth());
-                    // The glow goes first, so the picture is drawn over it.
-                    if (config_.glow && glowOverlay_.hasContent() && glowSampler_.ready() && layerCap>=3) {
+                    // The glow goes first, so the picture is drawn over it. It sits a little behind the picture, never in
+                    // its plane, see fx::glowPlacement. (A screen we draw ourselves has the glow drawn into the same image.)
+                    if (config_.glow && !projected && glowOverlay_.hasContent() && glowSampler_.ready() && layerCap>=3) {
                         const float aspect=static_cast<float>(layout_.visibleWidth())/static_cast<float>(layout_.height);
+                        const auto place=fx::glowPlacement(pose::length(pose::sub(screen_.position,headPose_.position)));
+                        XrPosef behind=screen_; behind.position=pose::add(screen_.position,pose::rotate(screen_.orientation,{0,0,-place.back}));
                         auto& g=slot[layerCount];
-                        fillScreenLayer(g,local_,screen_,radius,config_.curveAtAxis,0,config_.width*(aspect+2*fx::GlowMargin)/aspect,height*(1+2*fx::GlowMargin),
+                        fillScreenLayer(g,local_,behind,radius>0 ? radius+place.back : 0.0f,config_.curveAtAxis,0,
+                            place.grow*config_.width*(aspect+2*fx::GlowMargin)/aspect,place.grow*height*(1+2*fx::GlowMargin),
                             glowOverlay_.handle(),{{0,0},{static_cast<int32_t>(fx::GlowTex),static_cast<int32_t>(fx::GlowTex)}},XR_EYE_VISIBILITY_BOTH,
                             XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT);
                         layers[layerCount++]=g.header();
                     }
                     // Floating window: each eye shows a slightly narrower slice of its picture, see fx::floatShift.
                     const UINT shift=fx::floatShift(layout_.visibleWidth(),config_.floatWindow);
-                    for (UINT eye=0;eye<2;++eye) {
+                    if (projected) {
+                        const float vw=static_cast<float>(layout_.visibleWidth()),aspect=vw/static_cast<float>(layout_.height);
+                        if (config_.glow && !curved_.hasGlow() && glow_.valid()) curved_.setGlow(glow_,config_.glowStrength,aspect);
+                        for (UINT eye=0;eye<2;++eye) curved_.copyPicture(eye,snapshot_.Get(),layout_.box(eye,config_.swap));
+                        for (UINT eye=0;eye<2;++eye) {
+                            auto& c=projChains_[eye]; uint32_t index=0;
+                            XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO}; XR(xrAcquireSwapchainImage(c.handle,&ai,&index));
+                            XrSwapchainImageWaitInfo sw{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO}; sw.timeout=XR_INFINITE_DURATION;
+                            XR(xrWaitSwapchainImage(c.handle,&sw));
+                            const auto slice=fx::eyeSlice(eye,layout_.visibleWidth(),shift,config_.width);
+                            const curved::Strip picture{slice.centre,slice.width,height,static_cast<float>(slice.x)/vw,static_cast<float>(slice.x+slice.w)/vw,0,1};
+                            const curved::Strip halo{0,config_.width*(aspect+2*fx::GlowMargin)/aspect,height*(1+2*fx::GlowMargin),0,1,0,1};
+                            curved_.draw(projTargets_[eye].at(index).Get(),projW_,projH_,eye,views[eye].pose,views[eye].fov,screen_,radius,picture,config_.glow ? &halo : nullptr);
+                            context_->Flush();
+                            XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO}; XR(xrReleaseSwapchainImage(c.handle,&ri));
+                            projViews[eye]={XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                            projViews[eye].pose=views[eye].pose; projViews[eye].fov=views[eye].fov;
+                            projViews[eye].subImage.swapchain=c.handle;
+                            projViews[eye].subImage.imageRect={{0,0},{static_cast<int32_t>(projW_),static_cast<int32_t>(projH_)}};
+                        }
+                        projLayer.layerFlags=0; projLayer.space=local_; projLayer.viewCount=2; projLayer.views=projViews.data();
+                        layers[layerCount++]=reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projLayer);
+                        if (number==1 || number%300==0) log("Curved screen: radius="+std::to_string(radius)+" glow="+(config_.glow && curved_.hasGlow() ? "yes" : "no")+
+                            " image="+std::to_string(projW_)+"x"+std::to_string(projH_)+" float_shift_px="+std::to_string(shift));
+                    } else for (UINT eye=0;eye<2;++eye) {
                         auto& c=chains_[eye]; uint32_t index=0;
                         XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO}; XR(xrAcquireSwapchainImage(c.handle,&ai,&index));
                         XrSwapchainImageWaitInfo sw{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO}; sw.timeout=XR_INFINITE_DURATION;
@@ -679,7 +826,9 @@ public:
                 const auto elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-before).count();
                 log("Frame="+std::to_string(number)+" submitted_eye_layers="+std::to_string(layerCount)+" shouldRender="+std::to_string(state.shouldRender)+
                     " predicted_period_ms="+std::to_string(state.predictedDisplayPeriod/1e6)+" CPU_wait_and_submit_ms="+std::to_string(elapsed)+
-                    " view_flags="+hex(viewState.viewStateFlags));
+                    " view_flags="+hex(viewState.viewStateFlags)+" glow="+(config_.glow ? "on" : "off")+" glow_uploads="+std::to_string(glowUploads_)+
+                    " curve="+std::to_string(activeRadius()>0 ? 1 : 0)+" float_window="+std::to_string(config_.floatWindow));
+                glowUploads_=0;
                 hr(device_->GetDeviceRemovedReason(),"D3D11 device health");
             }
         } catch (...) {
@@ -691,7 +840,7 @@ public:
         }
     }
     void run(bool test, double seconds, const std::wstring& follow) {
-        testMode_=test;
+        testMode_=test; applyToolsOffset();
         KatangaSource source; ProcessFollower follower(follow);
         ComPtr<ID3D11Texture2D> pattern;
         if (test) {
@@ -744,6 +893,15 @@ static int runScan(bool all,unsigned draft) {
     return 0;
 }
 int main(int argc,char** argv) {
+    // The helper processes that look after SteamVR's setting: they must not touch FlatToDepth's own log.
+    if (argc>=2 && (std::string(argv[1])=="--steamvr-theater-guard" || std::string(argv[1])=="--steamvr-theater-restore")) {
+        int count=0; wchar_t** args=CommandLineToArgvW(GetCommandLineW(),&count);     // wide, so a folder with any letters in its name survives
+        const bool guard=std::string(argv[1])=="--steamvr-theater-guard";
+        int result=2;
+        if (args && count==(guard ? 5 : 4)) result=guard ? steamvr::runTheaterGuard(static_cast<DWORD>(std::wcstoul(args[2],nullptr,10)),args[3],args[4]) : steamvr::runTheaterRestore(args[2],args[3]);
+        if (args) LocalFree(args);
+        return result;
+    }
     startLog("flattodepth.log"); SetConsoleCtrlHandler(consoleHandler,TRUE);
     try {
         bool test=false,probe=false,help=false,scan=false,scanAll=false; unsigned draftApp=0; double seconds=0; std::filesystem::path config="flattodepth.ini"; std::wstring follow; std::string gameId;
@@ -785,6 +943,7 @@ int main(int argc,char** argv) {
         ensureSettings(config);
         if (game>=0) ensureSettings(first);
         Config c; c.load(first);
+        if (!test && !probe && c.hideGameTheater) steamvr::startTheaterGuard(std::filesystem::absolute(config).parent_path()/"state"/"steamvr-theater.txt",std::filesystem::absolute("logs")/"steamvr-theater.log");
         App app(c,config,launcher,game); app.initialize(probe);
         if (Games.empty()) app.notify(L"No games found: games.catalog.ini is missing. Reinstall FlatToDepth.",true);
         else if (!problems.empty()) app.notify(L"Some entries in the games files were skipped; see logs/flattodepth.log.",true);

@@ -7,7 +7,7 @@ $manifestPath = Join-Path $FtdState $info.FixManifest
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 # If Steam moved the game to another library since, the files moved with it: follow it before removing anything.
 try {
-    if (Sync-FtdRecordDirectory $manifestPath (Resolve-FtdGameDirectory $info $null)) {
+    if (Sync-FtdRecordDirectory $manifestPath (Get-FtdInstallDirectory $info (Resolve-FtdGameDirectory $info $null))) {
         Write-Output 'The game was moved to another Steam library; the install record was updated.'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     }

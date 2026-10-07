@@ -32,9 +32,12 @@ ctest --output-on-failure
 | Test | Needs |
 | --- | --- |
 | `window_pointer_control` | nothing: the moving, resizing and input masking logic (flat and curved screens), the tools button, the UI artwork |
+| `curved_screen` | nothing special: the curved screen's geometry, and its Direct3D 11 renderer run on WARP (the software device), checking the texture orientation, that a curve's edges are nearer and taller than its middle, the floating window and the glow. `FlatToDepthCurvedTest --hardware --dump <folder>` runs it on the real graphics card and writes the images to look at |
 | `tools_panel_fx` | nothing: the tools panel and its buttons, the key presser, the floating window, the ambient glow maths, cylinder layer building, and the settings files (it reads the shipped `flattodepth.default.ini`). `FlatToDepthToolsTest --dump tools.bmp glow.bmp` writes the panel and glow textures as pictures |
 | `game_menu` | nothing: the menu's layout and pages, placement, hover and click rules, the artwork |
 | `games_catalog_scan` | nothing: the games catalog and its validation (cases shared with the PowerShell reader), the Steam library scan, the executable reader and the `--scan` report, on synthetic executables and a fake Steam library |
+| `virtual_pad` | nothing to build; with the ViGEmBus driver installed it plugs a virtual pad in and reads it back through Windows' XInput, otherwise it checks only the protocol numbers and skips the rest |
+| `steamvr_helper` | nothing: finding SteamVR, and when the game-theater setting is turned off and put back; with SteamVR running it also reads (never changes) the setting |
 | `tests/catalog_test.ps1` (run it directly: `powershell -File tests/catalog_test.ps1`) | nothing: the same catalog, read by the install scripts' PowerShell reader, with the same shared cases |
 | `controller_transport_window` | both shims built (`build-gamepad.cmd`, `build-gamepad64.cmd`); also checks rumble travelling from the shim back to the bridge, and that a shim finds the bridge's real mapping name (that part is skipped if a real bridge is running on the PC) |
 | `tests/scripts_test.ps1` (run it directly: `powershell -File tests/scripts_test.ps1`) | nothing: Steam library resolution, games moved between libraries, the installer in dry-run mode, the license gate, and a real run of `package.ps1` on stand-in files; all with fake folders |

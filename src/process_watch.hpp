@@ -14,6 +14,23 @@ inline bool processRunning(const std::wstring& exeName) {
     return found;
 }
 
+// The folder a running program was started from (where its d3dx.ini is), or empty if there is no such process or it cannot be read.
+inline std::filesystem::path processDirectory(const std::wstring& exeName) {
+    const HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
+    if (snapshot==INVALID_HANDLE_VALUE) return {};
+    PROCESSENTRY32W entry{sizeof(entry)};
+    std::filesystem::path folder;
+    for (bool more=Process32FirstW(snapshot,&entry);more && folder.empty();more=Process32NextW(snapshot,&entry)) {
+        if (_wcsicmp(entry.szExeFile,exeName.c_str())!=0) continue;
+        if (const HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,entry.th32ProcessID)) {
+            wchar_t path[MAX_PATH]{}; DWORD size=MAX_PATH;
+            if (QueryFullProcessImageNameW(process,0,path,&size)) folder=std::filesystem::path(path).parent_path();
+            CloseHandle(process);
+        }
+    }
+    CloseHandle(snapshot);
+    return folder;
+}
 // True if the window that has the keyboard right now belongs to a process with this executable name.
 inline bool foregroundIs(const std::wstring& exeName) {
     const HWND window=GetForegroundWindow();
@@ -26,6 +43,27 @@ inline bool foregroundIs(const std::wstring& exeName) {
     const bool ok=QueryFullProcessImageNameW(process,0,path,&size)!=0;
     CloseHandle(process);
     return ok && _wcsicmp(std::filesystem::path(path).filename().c_str(),exeName.c_str())==0;
+}
+
+// What has the keyboard right now, for the log: the program's name and the window's title, or "none".
+inline std::string foregroundDescription() {
+    auto narrow=[](const std::wstring& w) {
+        if (w.empty()) return std::string();
+        std::string s(static_cast<size_t>(WideCharToMultiByte(CP_UTF8,0,w.c_str(),static_cast<int>(w.size()),nullptr,0,nullptr,nullptr)),'\0');
+        WideCharToMultiByte(CP_UTF8,0,w.c_str(),static_cast<int>(w.size()),s.data(),static_cast<int>(s.size()),nullptr,nullptr);
+        return s;
+    };
+    const HWND window=GetForegroundWindow();
+    if (!window) return "none";
+    DWORD pid=0; GetWindowThreadProcessId(window,&pid);
+    std::wstring program=L"?";
+    if (pid) if (const HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid)) {
+        wchar_t path[MAX_PATH]{}; DWORD size=MAX_PATH;
+        if (QueryFullProcessImageNameW(process,0,path,&size)) program=std::filesystem::path(path).filename().wstring();
+        CloseHandle(process);
+    }
+    wchar_t title[96]{}; GetWindowTextW(window,title,96);
+    return narrow(program)+" \""+narrow(title)+"\"";
 }
 
 // Lets the bridge end together with the game it was started for (`--follow oriDE.exe`).

@@ -1,6 +1,9 @@
 #pragma once
 #include "controller_frame.hpp"
 #include "window_control.hpp"
+#include "process_watch.hpp"
+#include "virtual_pad.hpp"
+#include "input_paths.hpp"
 #include <map>
 
 class ControllerInput {
@@ -15,6 +18,22 @@ class ControllerInput {
     bool hapticBound_=false,hapticWarned_=false,buzzing_[2]{};
     std::chrono::steady_clock::time_point tickUntil_[2]{};   // a UI tick owns this hand's motor until then
     GamepadPublisher publisher_;
+    // The same pad as a virtual Xbox controller in Windows, for games that do not use a shim (gamepad=virtual in the catalog).
+    VirtualPad virtualPad_;
+    bool virtualWanted_=false,virtualWarned_=false;
+    std::string virtualProblem_;      // why the pad is not there, while a game wants it
+    std::chrono::steady_clock::time_point virtualRetry_{};
+    // Plugs the virtual pad in if a game wants it and it is not there; if the driver is missing, tries again every few seconds
+    // (it may be installed while FlatToDepth runs) and says why only once.
+    void maintainVirtualPad() {
+        if (!virtualWanted_ || virtualPad_.plugged()) return;
+        const auto now=std::chrono::steady_clock::now();
+        if (now<virtualRetry_) return;
+        virtualRetry_=now+std::chrono::seconds(5);
+        std::string why;
+        if (virtualPad_.plugIn(&why)) { log("Virtual Xbox controller plugged in through ViGEmBus: the VR controllers are a normal gamepad to the game"); virtualWarned_=false; virtualProblem_.clear(); }
+        else { virtualProblem_=why; if (!virtualWarned_) { log("No virtual controller for this game: "+why); virtualWarned_=true; } }
+    }
     XrPath path(const std::string& text) { XrPath p{}; XR(xrStringToPath(instance_,text.c_str(),&p)); return p; }
     XrAction action(const char* name,XrActionType type,bool twoHands=false) {
         XrActionCreateInfo ci{XR_TYPE_ACTION_CREATE_INFO};
@@ -62,7 +81,8 @@ public:
             bind("stick",base+"thumbstick"); bind("trigger",base+"trigger/value");
             bind("stick_click",base+"thumbstick/click"); bind("hand_pose",base+"grip/pose");
             aimBindings.push_back({actions_.at("aim_pose"),path(base+"aim/pose")});
-            hapticBindings.push_back({actions_.at("haptic"),path(base+"output/haptic")});
+            // Not base+"output/haptic": base ends in /input/, and /user/hand/left/input/output/haptic is no path at all, which is why the runtime refused it and rumble never worked.
+            hapticBindings.push_back({actions_.at("haptic"),path(paths::haptic(hand))});
             if (frameProfile) { bind("grip",base+"squeeze/click"); bind("bumper",base+"bumper/click"); }
         }
         if (frameProfile) {
@@ -93,6 +113,7 @@ public:
         XrResult suggested=XR_SUCCESS; bool aimBound=false;
         for (const auto& attempt:attempts) {
             suggested=suggest(attempt.aim,attempt.haptic);
+            { char text[XR_MAX_RESULT_STRING_SIZE]{}; xrResultToString(instance_,suggested,text); log(std::string("Controller bindings with aim=")+(attempt.aim ? "1" : "0")+" haptic="+(attempt.haptic ? "1" : "0")+": "+text); }
             if (XR_SUCCEEDED(suggested)) { aimBound=attempt.aim; hapticBound_=attempt.haptic; break; }
         }
         XR(suggested);
@@ -110,6 +131,7 @@ public:
         for (int i=0;i<2;++i) if (buzzing_[i]) { stopVibration(i); buzzing_[i]=false; }
         publisher_.clearMotors();
         publisher_.publish({},false);
+        useVirtualPad(false);
         for (auto* spaces:{gripSpaces_,aimSpaces_}) for (int i=0;i<2;++i) { if (spaces[i]) xrDestroySpace(spaces[i]); spaces[i]=XR_NULL_HANDLE; }
         if (set_) xrDestroyActionSet(set_); set_=XR_NULL_HANDLE;
     }
@@ -127,7 +149,7 @@ public:
         XrActiveActionSet active{set_,XR_NULL_PATH}; XrActionsSyncInfo si{XR_TYPE_ACTIONS_SYNC_INFO}; si.countActiveActionSets=1; si.activeActionSets=&active;
         XrResult result=xrSyncActions(session_,&si); xrCheck(result,"xrSyncActions");
         out.focused=result==XR_SUCCESS;
-        if (out.focused!=lastFocused_) { log(out.focused ? "Controller focus acquired" : "Controller focus lost: neutral gamepad"); lastFocused_=out.focused; }
+        if (out.focused!=lastFocused_) { log((out.focused ? "Controller focus acquired" : "Controller focus lost: neutral gamepad")+std::string(" (the window with the keyboard: ")+foregroundDescription()+")"); lastFocused_=out.focused; }
         if (!out.focused) { trigger_[0]=trigger_[1]=false; return out; }
         auto convert=[](float x) { return static_cast<SHORT>(std::lround(std::clamp(x,-1.0f,1.0f)*32767)); };
         for (int i=0;i<2;++i) {
@@ -169,11 +191,30 @@ public:
         return out;
     }
 
+    // --- The virtual controller -----------------------------------------------------------------------------------------
+    // Called when a game starts or ends: on for a game whose catalog entry says gamepad=virtual, off otherwise. Plugging the pad in is
+    // retried from publish() while the driver is missing, so a driver installed meanwhile is picked up.
+    void useVirtualPad(bool on) {
+        if (on==virtualWanted_) return;
+        virtualWanted_=on; virtualRetry_={}; virtualWarned_=false; virtualProblem_.clear();
+        if (on) maintainVirtualPad();
+        else if (virtualPad_.plugged()) { virtualPad_.unplug(); log("Virtual Xbox controller removed"); }
+    }
+    // What is wrong with the virtual controller right now (empty when it works, or none is wanted), written for the player.
+    const std::string& virtualPadProblem() const { return virtualProblem_; }
+
     // --- Rumble ----------------------------------------------------------------------------------------------
     // What the game last asked of its two motors (see packMotors), and how often it has asked.
-    LONG gameMotors() const { return publisher_.motors(); }
-    LONG gameMotorWrites() const { return publisher_.motorWrites(); }
-    void clearGameMotors() { publisher_.clearMotors(); }
+    // For a game that has the virtual pad, what it asked of the pad's motors (the driver reports 0 to 255; packMotors takes 0 to 65535);
+    // otherwise what it asked of the shim. Called every frame, which is also what keeps the driver's request for the next change open.
+    // A game whose old shim is still in its folder (an install from before the virtual pad) rumbles through the shim, so the stronger of the two wins.
+    LONG gameMotors() {
+        const LONG fromShim=publisher_.motors();
+        if (!(virtualWanted_ && virtualPad_.plugged())) return fromShim;
+        const auto r=virtualPad_.rumble();
+        return packMotors(std::max(static_cast<WORD>(r.heavy*257),leftMotor(fromShim)),std::max(static_cast<WORD>(r.light*257),rightMotor(fromShim)));
+    }
+    LONG gameMotorWrites() const { return publisher_.motorWrites()+(virtualWanted_ && virtualPad_.plugged() ? static_cast<LONG>(virtualPad_.rumbleEvents()) : 0); }    void clearGameMotors() { publisher_.clearMotors(); }
     bool hapticsAvailable() const { return hapticBound_; }
     // Call once per frame. The game's two motors become controller vibration scaled by `strength`: with split=false
     // both controllers follow the stronger motor, with split=true the left motor drives the left controller and the
@@ -218,11 +259,14 @@ public:
     // captured[i]: hand i is busy with the window UI. neutral: the whole gamepad is withheld (recenter chord).
     void publish(const ControllerFrame& frame,const bool captured[2],bool neutral,uint64_t number) {
         const XINPUT_GAMEPAD pad=frame.gamepad(captured);
-        publisher_.publish(frame.focused && !neutral ? pad : XINPUT_GAMEPAD{},seenControllers_);
+        const XINPUT_GAMEPAD sent=frame.focused && !neutral ? pad : XINPUT_GAMEPAD{};
+        publisher_.publish(sent,seenControllers_);
+        if (virtualWanted_) { maintainVirtualPad(); virtualPad_.submit(sent); }
         if (number==1 || number%300==0) log("Controller available="+std::to_string(frame.available)+" focused="+std::to_string(frame.focused)+
             " window_ui_captured="+std::to_string(captured[0])+std::to_string(captured[1])+" buttons="+hex(pad.wButtons)+" LX="+std::to_string(pad.sThumbLX)+
             " LY="+std::to_string(pad.sThumbLY)+" game_XInput_reads="+std::to_string(publisher_.reads())+" reader_PID="+std::to_string(publisher_.readerPid())+
-            " game_rumble_writes="+std::to_string(publisher_.motorWrites()));
+            " game_rumble_writes="+std::to_string(gameMotorWrites())+
+            (virtualWanted_ ? std::string(" virtual_pad=")+(virtualPad_.plugged() ? "on" : "off")+" virtual_pad_errors="+std::to_string(virtualPad_.submitErrors())+" last_error="+std::to_string(virtualPad_.lastSubmitError()) : std::string()));
     }
-    void neutral() { publisher_.publish({},seenControllers_); }
+    void neutral() { publisher_.publish({},seenControllers_); if (virtualWanted_) { maintainVirtualPad(); virtualPad_.submit({}); } }
 };

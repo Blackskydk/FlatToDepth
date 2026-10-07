@@ -19,6 +19,14 @@ foreach ($game in $FtdGames.Values) {
         if ($hasFix) { & "$PSScriptRoot\uninstall-geo11.ps1" -Game $game.Id | ForEach-Object { Say "  $_" 'Green' } }
     } catch { Say "  FAILED: $($_.Exception.Message)" 'Red'; $failed = $true }
 }
+# SteamVR's game-theater setting, which FlatToDepth switches off while it runs and puts back by itself: if a crash left it off,
+# put it back now.
+$theaterRecord = Join-Path $FtdRoot 'state\steamvr-theater.txt'
+$programPath = Join-Path $FtdBin 'FlatToDepth.exe'
+if ((Test-Path -LiteralPath $theaterRecord) -and (Test-Path -LiteralPath $programPath)) {
+    if ($DryRun) { Say 'SteamVR: would put the game theater setting back on.' }
+    else { & $programPath --steamvr-theater-restore $theaterRecord (Join-Path $FtdRoot 'logs\steamvr-theater.log') | ForEach-Object { Say $_ }; $global:LASTEXITCODE = 0 }
+}
 Say ''
 Say 'Your settings (flattodepth*.ini, games.user.ini) and logs were kept. Delete this folder to remove FlatToDepth completely.'
 if ($failed) { exit 1 }

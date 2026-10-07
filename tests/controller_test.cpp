@@ -1,6 +1,9 @@
 #include "common.hpp"
 #include "gamepad_ipc.hpp"
+#include "input_paths.hpp"
 int main() {
+    // The paths FlatToDepth hands to OpenXR. The haptic one was once built from the input base and came out as /user/hand/left/input/output/haptic.
+    if (paths::haptic("left")!="/user/hand/left/output/haptic" || paths::haptic("right")!="/user/hand/right/output/haptic" || paths::input("left","thumbstick")!="/user/hand/left/input/thumbstick" || paths::haptic("left").find("/input/")!=std::string::npos) { std::cerr<<"FAIL: an OpenXR path is wrong\n"; return 1; }
     try {
         const std::wstring name=std::wstring(GamepadTestPrefix)+std::to_wstring(GetCurrentProcessId());
         SetEnvironmentVariableW(L"FLATTODEPTH_CONTROLLER_TEST_MAPPING",name.c_str());

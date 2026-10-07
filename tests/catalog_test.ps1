@@ -88,9 +88,18 @@ try {
     $bf = $FtdGames['blindforest']; $wotw = $FtdGames['wotw']
     Check (($bf.AppId -eq 387290) -and ($bf.Exe -eq 'oriDE.exe') -and ($bf.Profile -eq 'flattodepth-blindforest.ini') -and ($bf.Machine -eq 0x14c) -and $bf.HasFix -and ($bf.Title -eq 'Ori and the Blind Forest: Definitive Edition')) 'Blind Forest'
     Check (($wotw.AppId -eq 1057090) -and ($wotw.Exe -eq 'oriwotw.exe') -and ($wotw.Profile -eq 'flattodepth-wotw.ini') -and ($wotw.Machine -eq 0x8664) -and $wotw.HasFix) 'Will of the Wisps'
-    Check ((($bf.ShimFiles -join ',') -eq 'xinput9_1_0.dll') -and (($wotw.ShimFiles -join ',') -eq 'xinput1_4.dll,xinput1_3.dll') -and ($bf.ShimManifest -eq 'gamepad-install.json') -and ($bf.FixManifest -eq 'geo11-install.json')) 'shims and install records keep the names existing installs use'
+    Check (($bf.VirtualPad -and ($bf.ShimFiles.Count -eq 0) -and $wotw.VirtualPad -and ($wotw.ShimFiles.Count -eq 0)) -and ($bf.ShimManifest -eq 'gamepad-install.json') -and ($bf.FixManifest -eq 'geo11-install.json')) 'the Ori games get the virtual pad; their old shim install record keeps its name so the installer can remove it'
     Check (($bf.FixSha256 -ceq '05AC228130069D497CCF6FA5F529F74D8C55D1D5377407E5CBCEAA09E2D7F1EC') -and ($wotw.FixSha256 -ceq 'BA31AAD3CF9828F95CC5B7B1522DF60D51B5C86184B577D7B0691754B819EEC4')) 'the pinned fix hashes are unchanged'
     Check (($bf.Keys.Count -eq 5) -and ($bf.Keys[0].Key -eq 'F1') -and ($wotw.Keys.Count -eq 6) -and ($wotw.Keys[5].Label -eq 'Bloom')) 'the Geo-11 shortcuts'
+    $hk = $FtdGames['hollow-knight']
+    Check (($null -ne $hk) -and ($hk.AppId -eq 367520) -and ($hk.Exe -eq 'hollow_knight.exe') -and ($hk.Machine -eq 0x8664) -and $hk.HasFix -and ($hk.Keys.Count -eq 5) -and ($hk.Keys[1].Label -eq 'Depth of field') -and ($hk.Keys[4].Key -eq 'F5') -and
+        ($hk.FixSha256 -ceq '7ADF0E49C328D46118A3415300CA93C67AA473C63D2ECACCE76987CB8704C3DF') -and ($hk.FixInner -eq 'FixFiles.7z') -and $hk.VirtualPad -and ($hk.ShimFiles.Count -eq 0)) 'Hollow Knight'
+    Check ($hk.HasDriver -and ($hk.DriverSha256 -ceq '5F9C75963BF5D28A97916D829FB7080709431A24700870CF778354DBE1C0A350') -and ($hk.DriverRoot -eq 'x64') -and (($hk.DriverFiles -join ',') -eq 'd3d11.dll,nvapi64.dll') -and
+        -not $FtdGames['blindforest'].HasDriver -and -not $FtdGames['wotw'].HasDriver) 'Hollow Knight takes d3d11.dll and nvapi64.dll from the current Geo-11 driver; the other games use their fix as it is'
+    Check (-not $FtdGames['blindforest'].ExeDir -and -not $FtdGames['wotw'].ExeDir -and -not $hk.ExeDir) 'games with their program in the top folder have no exe_dir'
+    # A game that keeps its program in a subfolder, and a fix that unpacks into one.
+    $sub = (Try-Game "[split]`ntitle=Split`nsteam_app_id=2000`nexe=Split.exe`nexe_dir=x64`nmachine=x64`nfix_url=https://example.org/Split+Fix.7z`nfix_sha256=$('AB' * 32)`nfix_root=x64`n")
+    Check (($sub.Why -eq '') -and ($sub.Game.ExeDir -eq 'x64') -and ($sub.Game.FixRoot -eq 'x64') -and $sub.Game.HasFix -and -not $sub.Game.HasDriver) 'exe_dir and fix_root are read'
     Check ((@($FtdGames.Values | ForEach-Object { $_.AppId } | Select-Object -Unique)).Count -eq $FtdGames.Count) 'Steam apps are unique'
     # The example entry in docs\GAMES.md is what people will copy, so it has to load.
     $guide = [IO.File]::ReadAllText((Join-Path $root 'docs\GAMES.md'), $utf8)

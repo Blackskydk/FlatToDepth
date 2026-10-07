@@ -98,7 +98,7 @@ try {
     # --- The installer, end to end in dry-run mode, with fake libraries --------------------------------------------------
     if (Test-Path -LiteralPath (Join-Path $FtdBin 'FlatToDepth.exe')) {
         $out = & (Join-Path $root 'scripts\install.ps1') -DryRun -Yes -Games wotw 6>&1 | Out-String
-        Check (($out -match 'Ori and the Will of the Wisps') -and ($out -match 'would download') -and ($out -match 'OK ')) 'install.ps1 -DryRun plans the fix and the shim for a fake game'
+        Check (($out -match 'Ori and the Will of the Wisps') -and ($out -match 'would download') -and ($out -match 'virtual Xbox controller') -and ($out -match 'OK ')) 'install.ps1 -DryRun plans the fix and the virtual controller for a fake game'
         Check ($out -notmatch 'FAIL') 'install.ps1 -DryRun reports no failure'
         $out2 = & (Join-Path $root 'scripts\uninstall.ps1') -DryRun 6>&1 | Out-String
         Check (($out2 -match 'nothing installed') -or ($out2 -match 'would remove')) 'uninstall.ps1 -DryRun runs'
@@ -108,7 +108,7 @@ try {
     $catalog = Join-Path $temp 'catalog'; New-Item -ItemType Directory -Path $catalog | Out-Null
     Copy-Item -LiteralPath (Join-Path $root 'games.catalog.ini') -Destination $catalog
     Set-Content -LiteralPath (Join-Path $catalog 'games.user.ini') -Value ("[zed]`ntitle=Zed Quest`nsteam_app_id=1001`nexe=zed.exe`nmachine=x64`nfolder=Zed`nshim_files=xinput1_4.dll`n" +
-        "[nomachine]`ntitle=No Machine`nsteam_app_id=1002`nexe=nm.exe`nfolder=NoMachine`n[bad one]`ntitle=Broken`n")
+        "[nomachine]`ntitle=No Machine`nsteam_app_id=1002`nexe=nm.exe`nfolder=NoMachine`nshim_files=xinput1_4.dll`n[bad one]`ntitle=Broken`n")
     $userLib = New-Library 'UserLib'
     foreach ($entry in @(@('Zed', 'zed.exe', 1001), @('NoMachine', 'nm.exe', 1002))) {
         $dir = Join-Path $userLib "steamapps\common\$($entry[0])"; New-Item -ItemType Directory -Force -Path $dir | Out-Null

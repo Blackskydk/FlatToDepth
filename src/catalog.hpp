@@ -78,10 +78,12 @@ struct GameInfo {
     std::wstring subtitle;
     unsigned steamAppId=0;
     std::wstring process;      // executable name while the game runs, e.g. oriDE.exe
+    std::wstring exeDir;       // the one folder inside the game's folder that holds that program, if it is not the top one
     std::wstring profile;      // this game's settings INI, next to the main config
     std::vector<GameKey> keys; // the fix's shortcuts
     std::string machine;       // "x86", "x64" or "" (unknown): which executable the game has
     bool hasFix=false;         // the entry says where to download a stereo fix; otherwise you bring your own
+    bool virtualPad=true;      // the VR controllers reach the game as a virtual Xbox pad (ViGEmBus); false only for an entry that asks for a shim DLL
     std::string source;        // "catalog" or "user"
 };
 
@@ -130,6 +132,10 @@ inline std::string gameFromSection(const IniSection& s,const std::string& source
     const std::string exe=s.get("exe");
     if (!plainName(exe," _.-+") || exe.size()<5 || _stricmp(exe.c_str()+exe.size()-4,".exe")!=0) return "exe must be the game's executable name, like game.exe, with no folder";
     g.process=widen(exe);
+    const std::string exeDir=s.get("exe_dir"),fixRoot=s.get("fix_root");
+    if (!exeDir.empty() && !plainName(exeDir)) return "exe_dir must be the name of one folder inside the game folder, with no slashes";
+    if (!fixRoot.empty() && !plainName(fixRoot)) return "fix_root must be the name of one folder inside the fix download, with no slashes";
+    g.exeDir=widen(exeDir);
     g.machine=s.get("machine");
     if (g.machine!="" && g.machine!="x86" && g.machine!="x64") return "machine must be x86 or x64";
     const std::string profile=s.get("profile","flattodepth-"+g.id+".ini");
@@ -149,6 +155,13 @@ inline std::string gameFromSection(const IniSection& s,const std::string& source
     }
     for (const auto& dll : splitList(s.get("shim_files")))
         if (!std::regex_match(dll,std::regex("xinput[A-Za-z0-9_.]*\\.dll",std::regex::icase))) return "shim_files may only name xinput*.dll files";
+    // How the VR controllers reach the game: as a virtual Xbox controller that Windows itself shows to every game (the default,
+    // and what every game in the catalog uses), or, only if the entry asks for it with shim_files, through a replacement XInput DLL
+    // in the game's folder, which needs no driver but reaches only a game that calls that DLL.
+    const std::string gamepad=s.get("gamepad",s.get("shim_files").empty() ? "virtual" : "shim");
+    if (gamepad!="shim" && gamepad!="virtual") return "gamepad must be shim or virtual";
+    g.virtualPad=gamepad=="virtual";
+    if (g.virtualPad && !splitList(s.get("shim_files")).empty()) return "gamepad=virtual does not use shim_files: a shim in the game folder would hide the virtual controller from the game";
     for (const char* name : {"shim_manifest","fix_manifest","fix_dir"}) { const auto v=s.get(name); if (!v.empty() && !plainName(v)) return std::string(name)+" must be a plain file or folder name"; }
     const std::string url=s.get("fix_url");
     if (!url.empty()) {
@@ -159,6 +172,21 @@ inline std::string gameFromSection(const IniSection& s,const std::string& source
         if (!s.get("fix_inner").empty() && !plainName(s.get("fix_inner"),"_.-+")) return "fix_inner must be a plain file name";
         if (!s.get("fix_marker").empty() && !plainName(s.get("fix_marker"),"_.-+")) return "fix_marker must be a plain file name";
         g.hasFix=true;
+    }
+    // An optional newer Geo-11 driver, laid over the fix: some of the fix's own files (its d3d11.dll) are too old for a game
+    // that has been updated since, so a few files are taken from a second, pinned download instead.
+    const std::string driverUrl=s.get("driver_url");
+    if (driverUrl.empty()) {
+        for (const char* name : {"driver_sha256","driver_archive","driver_root","driver_files"}) if (!s.get(name).empty()) return std::string(name)+" needs driver_url";
+    } else {
+        if (url.empty()) return "driver_url replaces files of a stereo fix, so the entry needs fix_url too";
+        if (driverUrl.rfind("https://",0)!=0 || driverUrl.find_first_of(" \t\"'<>`")!=std::string::npos) return "driver_url must be an https:// address";
+        if (!std::regex_match(s.get("driver_sha256"),std::regex("[0-9A-Fa-f]{64}"))) return "driver_url needs driver_sha256, the SHA256 of the download (64 hex digits), so only the inspected file is ever installed";
+        if (!plainName(s.get("driver_archive",urlFileName(driverUrl)),"_.-+")) return "driver_archive must be a plain file name (the address does not end in one, so name it)";
+        if (!s.get("driver_root").empty() && !plainName(s.get("driver_root"))) return "driver_root must be the name of one folder inside the driver download, with no slashes";
+        const auto files=splitList(s.get("driver_files"));
+        if (files.empty()) return "driver_url needs driver_files, the names of the files to take from the download";
+        for (const auto& f : files) if (!plainName(f,"_.-+")) return "driver_files must be plain file names";
     }
     out=std::move(g);
     return {};

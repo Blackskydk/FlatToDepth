@@ -43,6 +43,7 @@ int main(int argc,char** argv) {
     if (dumping) {
         // Renders the tools panel and the glow so they can be looked at: --dump tools.bmp glow.bmp
         ToolsVisual v; v.game=1; v.hover=2; v.swapEyes=true; v.curve=2; v.glow=true; v.floatWindow=1; v.status=L"Convergence (F1) sent to the game.";
+        { const auto keys=fixkeys::parse("[Stereo]\nconvergence=0\n;Convergence presets.\n[KeyConvergence]\nKey = no_modifiers F1\nback = shift F1\ntype = cycle\nconvergence = 0, 2, 4, 8, 12, 18\n"); v.hover=0; v.keyDetail={fixkeys::caption(fixkeys::find(keys,VK_F1),1),L"toggle",L"",L"",L"",L""}; v.help=tools::explainKey(L"Convergence",VK_F1,fixkeys::find(keys,VK_F1),1); v.moveHover=false; }
         std::vector<uint32_t> px; tools::render(px,v,false); writeBmp(argv[2],px,tools::TexW,tools::TexH);
         fx::GlowState g; std::vector<uint8_t> cells(16*9*4); for (int y=0;y<9;++y) for (int x=0;x<16;++x) {
             uint8_t* c=&cells[(static_cast<size_t>(y)*16+x)*4]; c[0]=static_cast<uint8_t>(x*16); c[1]=static_cast<uint8_t>(60+y*10); c[2]=static_cast<uint8_t>(255-x*16); c[3]=255; }
@@ -88,6 +89,14 @@ int main(int argc,char** argv) {
         CHECK(nearly(tools::pxX(0),tools::TexW/2.0f) && nearly(tools::pxY(0),tools::TexH/2.0f) && nearly(tools::pxX(tools::PanelW/2),static_cast<float>(tools::TexW)),"pixel mapping is centred");
         CHECK(nearly(tools::PxPerMeter*tools::PanelH,static_cast<float>(tools::TexH),0.01f),"pixels are square on the panel");
         CHECK(tools::cell(1).x>tools::cell(0).x && tools::cell(4).y>tools::cell(0).y && nearly(tools::cell(4).x,tools::cell(0).x),"four columns, three rows");
+        {
+            const auto bar=tools::moveBar(),box=tools::infoBox();
+            CHECK(bar.x>=0 && bar.x+bar.w<=tools::TexW && bar.y>=tools::BodyH && bar.y+bar.h<=tools::TexH,"the bar hangs under the panel, inside the texture");
+            CHECK(box.x>=0 && box.x+box.w<=tools::TexW && box.y+box.h<=tools::BodyH && !overlap(box,close),"the explanation box is on the panel");
+            for (size_t i=0;i<tools::MaxItems;++i) CHECK(!overlap(box,tools::cell(i)) && !overlap(bar,tools::cell(i)),"the box and the bar overlap no button");
+            CHECK(!overlap(bar,box),"and not each other");
+            CHECK(tools::PanelW<=1.3f && tools::Distance<=2.0f,"the panel is compact");
+        }
     }
 
     // --- Panel behaviour -------------------------------------------------------------------------------------------
@@ -115,7 +124,7 @@ int main(int argc,char** argv) {
         r.step(3); CHECK(r.last.clicked<0 && r.last.pressed[1],"holding does not repeat the click");
         r.hands[1].click=false; r.step(); CHECK(!r.last.pressed[1],"release");
         // Sweeping onto a button with the trigger already down is not a click.
-        r.point(1,r.at(tools::TexW/2.0f,tools::TexH-8.0f)); r.hands[1].click=true; r.step(3);
+        r.point(1,r.at(tools::TexW/2.0f,tools::BodyH-6.0f)); r.hands[1].click=true; r.step(3);
         r.point(1,r.cellCentre(0)); r.step();      // the first frame on the button is when a click would fire
         CHECK(r.last.clicked<0 && r.last.hover==0,"a held trigger swept onto a button does not click it");
         r.step(3); CHECK(r.last.clicked<0,"and keeps not clicking while it stays down");
@@ -132,7 +141,7 @@ int main(int argc,char** argv) {
         CHECK(r.last.close && r.last.clicked<0,"clicking the close button reports close");
         r.hands[1].click=false; r.step();
         // Blank panel: the laser shows, nothing is hovered or clicked, but the hand is still on the panel.
-        r.point(1,r.at(tools::TexW/2.0f,tools::TexH-10.0f)); r.hands[1].click=true; r.step();
+        r.point(1,r.at(tools::TexW/2.0f,tools::BodyH-6.0f)); r.hands[1].click=true; r.step();
         r.hands[1].click=false; r.step(); r.hands[1].click=true; r.step();
         CHECK(r.last.pointer[1] && r.last.hover<0 && r.last.clicked<0 && !r.last.close && !r.last.pressed[1],"empty panel space is inert but still captures the laser");
         r.hands[1].click=false; r.step();
@@ -158,6 +167,70 @@ int main(int argc,char** argv) {
         CHECK(quads.size()==3 && quads[0].sheet==2 && quads[0].rect.w==tools::TexW && nearly(quads[0].size.width/quads[0].size.height,static_cast<float>(tools::TexW)/tools::TexH,1e-4f),"panel quad on sheet 2");
         CHECK(nearly(quads[2].pose.position.z,quads[0].pose.position.z,0.01f) && quads[1].sheet==0 && quads[2].sheet==0,"beam and cursor come from the shared atlas");
         CHECK(buildToolsQuads(q.panel,ToolsPanel::Output{},q.head).size()==1,"no laser, no pointer quads");
+    }
+
+    // --- Carrying the panel ----------------------------------------------------------------------------------------
+    {
+        PanelRig r;
+        const auto bar=tools::moveBar();
+        const float bx=bar.x+bar.w/2,by=bar.y+bar.h/2;
+        r.point(1,r.at(bx,by)); r.step();
+        CHECK(r.last.moveHover && r.last.hover<0 && !r.last.closeHover && r.last.pointer[1] && !r.last.moving && r.last.entered[1],"the bar under the panel hovers");
+        r.hands[1].click=true; r.step();
+        CHECK(r.last.moving && r.last.pressed[1] && r.last.clicked<0 && !r.last.close && !r.last.moved && r.last.clickHand==1,"pulling the trigger on the bar starts carrying the panel");
+        // The hand moves along each axis in turn: the panel goes with it, by exactly as much.
+        for (const XrVector3f delta : {XrVector3f{0.25f,0,0},XrVector3f{0,0.2f,0},XrVector3f{0,0,-0.3f},XrVector3f{-0.1f,-0.35f,0.15f}}) {
+            const XrVector3f before=r.panel.pose().position;
+            r.hands[1].aim.position=pose::add(r.hands[1].aim.position,delta); r.step();
+            CHECK(nearly(pose::sub(r.panel.pose().position,before),delta,1e-4f),"the panel follows the hand in every direction");
+        }
+        // Turning the hand swings the panel round it, as it does the game window.
+        const XrPosef aimBefore=r.hands[1].aim; const XrVector3f panelBefore=r.panel.pose().position;
+        r.hands[1].aim.orientation=pose::multiply(XrQuaternionf{std::sin(0.15f),0,0,std::cos(0.15f)},pose::multiply(XrQuaternionf{0,std::sin(0.15f),0,std::cos(0.15f)},aimBefore.orientation));
+        r.step();
+        const auto expected=pose::add(aimBefore.position,pose::rotate(r.hands[1].aim.orientation,pose::unrotate(aimBefore.orientation,pose::sub(panelBefore,aimBefore.position))));
+        CHECK(nearly(r.panel.pose().position,expected,1e-3f),"turning the hand swings the panel round it");
+        // The panel turns to face you, without any roll.
+        r.step(80);
+        const auto toHead=pose::normalize(pose::sub(r.head.position,r.panel.pose().position));
+        CHECK(pose::dot(pose::rotate(r.panel.pose().orientation,{0,0,1}),toHead)>0.999f && std::fabs(pose::rotate(r.panel.pose().orientation,{1,0,0}).y)<1e-3f,"the panel turns to face you, and stays level");
+        CHECK(r.last.moving && r.last.pointer[1] && r.last.pressed[1] && r.last.moveHover,"the laser stays on while it is carried");
+        // Let go: the place is remembered, in the head's own heading.
+        const XrVector3f carriedTo=r.panel.pose().position;
+        r.hands[1].click=false; r.step();
+        CHECK(r.last.moved && !r.last.moving && nearly(r.panel.offset(),carriedTo,1e-3f),"letting go remembers where it was put");
+        r.panel.hide(); r.panel.show(r.head);
+        CHECK(nearly(r.panel.pose().position,carriedTo,1e-3f),"and it opens there next time");
+        XrPosef turnedHead{pose::yawRotation({0,std::sin(0.4f),0,std::cos(0.4f)}),{2,0,1}};
+        r.panel.place(turnedHead);
+        CHECK(nearly(pose::unrotate(pose::yawRotation(turnedHead.orientation),pose::sub(r.panel.pose().position,turnedHead.position)),carriedTo,1e-3f),"relative to wherever you face then");
+        // Held, the thumbstick pushes the panel away and pulls it back; a light touch does nothing.
+        PanelRig p; p.point(1,p.at(bx,by)); p.step(); p.hands[1].click=true; p.step();
+        auto distance=[&]() { return pose::length(pose::sub(p.panel.pose().position,p.handOrigin[1])); };
+        const float before=distance();
+        p.hands[1].stickY=0.1f; p.step(30); CHECK(nearly(distance(),before,1e-4f),"a light touch of the thumbstick is ignored");
+        p.hands[1].stickY=1; p.step(45); const float pushed=distance();
+        p.hands[1].stickY=-1; p.step(90); const float pulled=distance();
+        CHECK(pushed>before*1.3f && pulled<pushed*0.8f,"the thumbstick pushes the carried panel away and pulls it nearer");
+        p.hands[1].stickY=1; p.step(3000);
+        CHECK(distance()<=tools::MaxHandDistance+0.01f,"it cannot be pushed out of reach");
+        p.hands[1].stickY=-1; p.step(3000);
+        CHECK(distance()>=tools::MinHandDistance-0.01f && pose::length(pose::sub(p.panel.pose().position,p.head.position))>=tools::MinHeadDistance-0.01f,"nor pulled into your face");
+        // Sweeping onto the bar with the trigger already down does not pick the panel up.
+        PanelRig s; s.point(1,s.at(tools::TexW/2.0f,tools::BodyH-6.0f)); s.hands[1].click=true; s.step(3);
+        s.point(1,s.at(bx,by)); s.step(3);
+        CHECK(!s.last.moving && s.last.moveHover,"a held trigger swept onto the bar does not grab it");
+        // The other hand's trigger is its own: it can press a button while one hand carries.
+        PanelRig two; two.point(1,two.at(bx,by)); two.step(); two.hands[1].click=true; two.step();
+        two.point(0,two.cellCentre(2)); two.step(); two.hands[0].click=true; two.step();
+        CHECK(two.last.moving && two.last.clicked==2 && two.last.clickHand==0,"the other hand can still press a button");
+        // Hiding the panel while it is held drops it.
+        PanelRig h; h.point(1,h.at(bx,by)); h.step(); h.hands[1].click=true; h.step(); CHECK(h.last.moving,"held");
+        h.panel.hide(); h.panel.show(h.head); h.step(); CHECK(!h.last.moving,"a hidden panel is not still being carried");
+        // The remembered place is kept within reach.
+        ToolsPanel farAway; farAway.setOffset({0,0,-50}); CHECK(pose::length(farAway.offset())<=tools::MaxDistance+1e-3f,"a far place is brought into reach");
+        ToolsPanel tooClose; tooClose.setOffset({0,0,0}); CHECK(pose::length(tooClose.offset())>=tools::MinDistance,"no place inside the head");
+        ToolsPanel fresh; CHECK(nearly(fresh.offset(),tools::DefaultOffset),"by default it opens in front of you, a little low");
     }
 
     // --- Key presser -----------------------------------------------------------------------------------------------
@@ -202,6 +275,24 @@ int main(int argc,char** argv) {
         CHECK(fx::GlowSampler::levelFor(1440)==7 && fx::GlowSampler::levelFor(1080)==6 && fx::GlowSampler::levelFor(720)==6 && fx::GlowSampler::levelFor(100)==3 && fx::GlowSampler::levelFor(8)==0,
             "the sampled level has about a dozen rows");
         for (UINT h:{240u,480u,720u,1080u,1440u,2160u}) { const UINT rows=h>>fx::GlowSampler::levelFor(h); CHECK(rows>=10 && rows<20,"between ten and nineteen rows"); }
+        // The glow follows the picture slowly: one reading moves it only a little, a second of readings most of the way, and the
+        // step never depends on how often the readings come in.
+        CHECK(fx::glowBlend(0)==0 && fx::glowBlend(-1)==0,"no time, no movement");
+        CHECK(fx::glowBlend(1.0f/15)<0.1f,"one reading (about a fifteenth of a second) moves the glow a few percent");
+        CHECK(fx::glowBlend(0.1f)<fx::glowBlend(0.5f) && fx::glowBlend(0.5f)<fx::glowBlend(1.0f),"longer between readings, bigger step");
+        CHECK(nearly(fx::glowBlend(2.0f),fx::glowBlend(1.0f)),"the step is capped at one second's worth, so a stall cannot make the glow jump");
+        {
+            // 90 readings at 1/15 s and 30 at 1/5 s are both six seconds of the same picture, so they end in the same place.
+            float a=0,b=0; for (int i=0;i<90;++i) a+=(1-a)*fx::glowBlend(1.0f/15); for (int i=0;i<30;++i) b+=(1-b)*fx::glowBlend(0.2f);
+            CHECK(nearly(a,b,0.01f) && a>0.95f,"the glow settles in the same time however often it is read, and fully within a few seconds");
+        }
+        // The glow sits behind the picture, not in its plane, and covers the same angles from where you are.
+        {
+            const auto p=fx::glowPlacement(2.5f);
+            CHECK(p.back>0 && nearly(p.grow,(2.5f+p.back)/2.5f) && p.grow>1,"behind the picture and bigger by the same ratio");
+            CHECK(nearly(2.5f*p.grow,2.5f+p.back),"the ratio is that of the two distances, so the angles are the same");
+            CHECK(fx::glowPlacement(0).grow>1 && fx::glowPlacement(0).grow<2,"a screen at the head still gets a sensible glow");
+        }
         // Reading a grid: RGBA and BGRA, smoothing, change detection.
         std::vector<uint8_t> px(2*2*4);
         auto set=[&](int cell,uint8_t r,uint8_t g,uint8_t b) { px[cell*4]=r; px[cell*4+1]=g; px[cell*4+2]=b; px[cell*4+3]=255; };
@@ -238,12 +329,14 @@ int main(int argc,char** argv) {
         auto alpha=[](uint32_t p) { return p>>24; };
         CHECK(px1.size()==static_cast<size_t>(fx::GlowTex)*fx::GlowTex,"glow texture size");
         const float edge=aspect/2;
-        CHECK(alpha(texel(px1,0,0))>=static_cast<uint32_t>(strength*255-3),"behind the picture it is as strong as the setting");
+        CHECK(alpha(texel(px1,0,0))==0 && alpha(texel(px1,edge-0.05f,0.4f))==0,"behind the picture it is fully transparent, so it can never wash the picture out");
+        CHECK(texel(px1,0,0)!=0 && (texel(px1,-edge+0.05f,0)&255)>100,"but keeps the picture's colour there, so the edge blends without a dark seam");
+        CHECK(alpha(texel(px1,edge+0.02f,0))>=static_cast<uint32_t>(strength*255*0.8f),"just outside the picture it is nearly as strong as the setting");
         const uint32_t leftGlow=texel(px1,-edge-0.1f,0),rightGlow=texel(px1,edge+0.1f,0);
         CHECK((leftGlow&255)>(leftGlow>>16&255)*4 && (rightGlow>>16&255)>(rightGlow&255)*4,"the glow takes the colour of the nearest edge: red on the left, blue on the right");
         CHECK(alpha(texel(px1,edge+0.05f,0))>alpha(texel(px1,edge+0.25f,0)) && alpha(texel(px1,edge+0.25f,0))>alpha(texel(px1,edge+0.45f,0)) && alpha(texel(px1,edge+0.45f,0))>0,"it fades smoothly with distance");
         CHECK(alpha(texel(px1,edge+fx::GlowMargin-0.01f,0))<10 && alpha(px1[0])==0 && alpha(px1.back())==0,"it is gone by the end of its reach, and the corners are clear");
-        CHECK(alpha(texel(px1,0,0.5f+0.1f))>0 && alpha(texel(px1,0,0.5f+0.1f))<alpha(texel(px1,0,0)),"glow above and below too");
+        CHECK(alpha(texel(px1,0,0.5f+0.1f))>0 && alpha(texel(px1,0,0.5f+0.1f))<alpha(texel(px1,0,0.5f+0.02f)),"glow above and below too");
         std::vector<uint32_t> weak,none; fx::renderGlow(weak,scene,0.3f,aspect,false); fx::renderGlow(none,scene,0,aspect,false);
         CHECK(alpha(texel(weak,-edge-0.1f,0))<alpha(texel(px1,-edge-0.1f,0)) && alpha(texel(none,-edge-0.1f,0))==0,"strength scales it, zero is off");
         std::vector<uint32_t> bgraPx; fx::renderGlow(bgraPx,scene,strength,aspect,true);
@@ -330,7 +423,19 @@ int main(int argc,char** argv) {
             CHECK(!d.swap && nearly(d.curve,0.55f) && !d.glow && nearly(d.floatWindow,0.016f) && !d.rumble,"settings saved from the headset are read back");
             c.save(L"screen",L"swap_eyes",1.0f); Config e; e.load(path); CHECK(e.swap,"swapping the eyes back and forth survives a restart");
         }
-        std::error_code ignored; std::filesystem::remove_all(dir,ignored);
+        // Where the tools panel was carried to is remembered in the settings file.
+        {
+            const auto path=write("tools.ini","[screen]\nswap_eyes=1\n");
+            Config c; c.load(path);
+            CHECK(!c.hasToolsOffset,"a settings file without a carried panel has no position");
+            c.saveToolsOffset({0.4f,-0.3f,-1.2f});
+            Config d; d.load(path);
+            CHECK(d.hasToolsOffset && nearly(d.toolsOffset,XrVector3f{0.4f,-0.3f,-1.2f}),"a carried panel position is read back");
+            for (const char* bad:{"x_m=abc","x_m=0\ny_m=0\nz_m=-30","x_m=0\ny_m=0\nz_m=0"}) {
+                bool threw=false; try { Config e; e.load(write("badtools.ini",std::string("[tools]\nplaced=1\n")+bad+"\n")); } catch (const std::exception&) { threw=true; }
+                CHECK(threw,std::string("refused: [tools] ")+bad);
+            }
+        }        std::error_code ignored; std::filesystem::remove_all(dir,ignored);
     }
 
     // --- The panel's picture ---------------------------------------------------------------------------------------
@@ -377,6 +482,102 @@ int main(int argc,char** argv) {
         const size_t at=static_cast<size_t>(f5.second)*tools::TexW+static_cast<size_t>(f5.first);
         CHECK((rgba[at]>>24)==(bgra[at]>>24) && (rgba[at]&255)==((bgra[at]>>16)&255) && ((rgba[at]>>16)&255)==(bgra[at]&255) && (rgba[at]&255)!=((rgba[at]>>16)&255),"BGRA path swaps red and blue only");
         ToolsVisual s1,s2; s2.status=L"x"; CHECK(!(s1==s2) && s1==ToolsVisual{},"visual states compare");
+        // A button with levels says how far it is turned up, in words and in dots; the others have no dots.
+        {
+            ToolsVisual lv; lv.curveAvailable=true; lv.curve=2; lv.floatWindow=3;
+            const auto items0=tools::items(0);
+            CHECK(tools::describe(items0[curve],lv).level==2 && tools::describe(items0[curve],lv).levels==3 && tools::describe(items0[window],lv).level==3,"the curve and floating window buttons carry their level");
+            CHECK(tools::describe(items0[swap],lv).levels==0 && tools::describe(items0[glow],lv).levels==0 && tools::describe(items0[rumble],lv).levels==0 && tools::describe(items0[0],lv).levels==0,"on/off buttons and shortcuts have no dots");
+            lv.curveAvailable=false; CHECK(tools::describe(items0[curve],lv).level<0,"an unavailable curve shows no level");
+            lv.curveAvailable=true;
+            std::vector<uint32_t> low,high;
+            lv.curve=0; tools::render(low,lv,false); lv.curve=1; tools::render(high,lv,false);
+            const auto curveCell=tools::cell(curve);
+            const float dotX=curveCell.x+curveCell.w/2-34,dotY=curveCell.y+curveCell.h-20;
+            CHECK(px(low,dotX,dotY)!=px(high,dotX,dotY),"the first dot lights when the level goes from off to low");
+            CHECK(px(low,f0.first,f0.second)==px(high,f0.first,f0.second),"and a button that did not change is untouched");
+            ToolsVisual toggled; toggled.glow=true; std::vector<uint32_t> onImg,offImg; tools::render(onImg,toggled,false); toggled.glow=false; tools::render(offImg,toggled,false);
+            CHECK(onImg!=offImg,"a toggle's state shows on its button");
+        }
+        // Nothing pointing at the panel: it turns see-through so the game shows behind it; a laser on it makes it solid again.
+        {
+            ToolsVisual solid,faded; faded.faded=true;
+            std::vector<uint32_t> s,f; tools::render(s,solid,false); tools::render(f,faded,false);
+            const int centre=static_cast<int>(tools::TexH/2)*static_cast<int>(tools::TexW)+static_cast<int>(tools::TexW/2);
+            const int solidAlpha=static_cast<int>(s[static_cast<size_t>(centre)]>>24),fadedAlpha=static_cast<int>(f[static_cast<size_t>(centre)]>>24);
+            CHECK(solidAlpha>200 && fadedAlpha>60 && fadedAlpha<solidAlpha*0.7,"a panel nothing points at is half see-through");
+            CHECK(static_cast<int>(f[0]>>24)==0,"and the space around it stays empty");
+            // The bar under the panel lights up under a laser, and turns accent-blue while the panel is carried.
+            ToolsVisual lit; lit.moveHover=true; std::vector<uint32_t> l; tools::render(l,lit,false);
+            ToolsVisual carried; carried.carrying=true; carried.moveHover=true; std::vector<uint32_t> cr; tools::render(cr,carried,false);
+            const auto bar=tools::moveBar(); const size_t at2=static_cast<size_t>(bar.y+bar.h/2)*tools::TexW+static_cast<size_t>(bar.x+40);
+            CHECK(alphaOf(s[at2])>200 && l[at2]!=s[at2] && cr[at2]!=l[at2],"the bar is solid, brighter under a laser, and different again while carried");
+            CHECK(alphaOf(s[static_cast<size_t>(bar.y-14)*tools::TexW+static_cast<size_t>(bar.x+40)])==0,"with a gap between the panel and the bar");
+        }
+        // Under the buttons the box explains the hovered button; with nothing hovered it gives the general hint.
+        {
+            ToolsVisual idle,explained; explained.help=L"Convergence sets where the 3D screen plane sits.";
+            std::vector<uint32_t> a2,b2; tools::render(a2,idle,false); tools::render(b2,explained,false);
+            const auto box=tools::infoBox(); bool differs=false,restSame=true;
+            for (int y=0;y<static_cast<int>(tools::TexH);++y) for (int x=0;x<static_cast<int>(tools::TexW);++x) {
+                const size_t i=static_cast<size_t>(y)*tools::TexW+static_cast<size_t>(x);
+                const bool inBox=x>=box.x && x<box.x+box.w && y>=box.y && y<box.y+box.h;
+                if (a2[i]!=b2[i]) { if (inBox) differs=true; else restSame=false; }
+            }
+            CHECK(differs && restSame,"the explanation changes the box and nothing else");
+            ToolsVisual keyed; keyed.game=0; keyed.keyDetail={L"2/4",L"toggle",L"",L"",L""};
+            CHECK(tools::describe(tools::items(0)[0],keyed).caption==L"F1 \u00b7 2/4" && tools::describe(tools::items(0)[1],keyed).caption==L"F2 \u00b7 toggle" && tools::describe(tools::items(0)[2],keyed).caption==L"F3","a shortcut's button shows its step next to its key");
+            std::vector<uint32_t> k1,k2; tools::render(k1,idle,false); tools::render(k2,keyed,false); CHECK(k1!=k2,"and the step is drawn");
+        }
+    }
+
+    // --- What the fix's shortcut keys do (read from its d3dx.ini) -------------------------------------------------------
+    {
+        const std::string ini=
+            "[Stereo]\nconvergence=0\ny=0\nz=1\nx1=0\n"
+            "[Constants]\n;x = 0.8\n"
+            ";Convergence presets.\n[Key1]\nKey = no_modifiers F1\nback = shift F1\ntype = cycle\nconvergence = 0, 15, 28, 38.6\ntransition = 150\ntransition_type = cosine\n"
+            "\n;Depth of field toggle.\n[Key2]\nKey = no_modifiers F2\ntype = toggle\ny = 1\n"
+            ";HUD depth presets.\n[Key3]\nKey = no_modifiers F3\nback = shift F3\ntype = cycle\nx = 0.2, 0.4, 0.6, 0.8, 1, 0\ntransition = 150\n"
+            ";HUD toggle.\n[KeyHud]\nKey = XB_RIGHT_THUMB\nKey = no_modifiers 1\ntype = cycle\nz = 0, 1\n"
+            ";Bloom toggle.\n[Key5]\nKey = no_modifiers VK_F5 ; the fifth\ntype = cycle\nz = 0, 1\n"
+            "[Hunting]\nhunting=0\n";
+        const auto keys=fixkeys::parse(ini);
+        CHECK(keys.size()==4,"only keys bound to a plain function key are read (a gamepad button or a number key is not one the panel can press)");
+        const auto* f1=fixkeys::find(keys,VK_F1); const auto* f2=fixkeys::find(keys,VK_F2); const auto* f3=fixkeys::find(keys,VK_F3); const auto* f5=fixkeys::find(keys,VK_F5);
+        CHECK(f1 && f1->type==fixkeys::Type::Cycle && f1->variable=="convergence" && f1->values==std::vector<std::string>({"0","15","28","38.6"}) && f1->hasBack && f1->comment=="Convergence presets.","a cycle: its variable, presets, a way back, and the author's note");
+        CHECK(f1 && f1->startIndex==0 && f1->initial=="0" && f1->steps()==4 && !f1->toggleLike(),"the starting value is found among the presets");
+        CHECK(f2 && f2->type==fixkeys::Type::Toggle && f2->variable=="y" && f2->values==std::vector<std::string>({"1"}) && !f2->hasBack && f2->comment=="Depth of field toggle." && f2->toggleLike(),"a toggle");
+        CHECK(f3 && f3->values.size()==6 && f3->startIndex==-1 && f3->comment=="HUD depth presets.","a start that the fix does not state is not guessed");
+        CHECK(f5 && f5->toggleLike() && f5->type==fixkeys::Type::Cycle && f5->values.size()==2 && f5->comment=="Bloom toggle.","a cycle of two values is a toggle; an inline note after the key is ignored");
+        WORD vk=0;
+        CHECK(fixkeys::functionKey("F1",vk) && vk==VK_F1 && fixkeys::functionKey("vk_f12",vk) && vk==VK_F12 && !fixkeys::functionKey("F13",vk) && !fixkeys::functionKey("F0",vk) && !fixkeys::functionKey("A",vk) && !fixkeys::functionKey("XB_RIGHT_THUMB",vk) && !fixkeys::functionKey("",vk),"function key names");
+        CHECK(fixkeys::sameNumber("0.0","0") && fixkeys::sameNumber("38.60","38.6") && !fixkeys::sameNumber("1","2") && !fixkeys::sameNumber("abc","0"),"values are compared as numbers");
+        CHECK(fixkeys::parse("").empty() && fixkeys::parse("garbage\n[Key1\nKey=F1\n").size()<=1,"nonsense does not crash it");
+
+        // Where a cycle is after the panel's own presses.
+        CHECK(fixkeys::cycleIndex(*f1,0)==0 && fixkeys::cycleIndex(*f1,1)==1 && fixkeys::cycleIndex(*f1,3)==3 && fixkeys::cycleIndex(*f1,4)==0 && fixkeys::cycleIndex(*f1,9)==1,"from its starting value, wrapping round");
+        CHECK(fixkeys::cycleIndex(*f3,0)==-1 && fixkeys::cycleIndex(*f3,1)==0 && fixkeys::cycleIndex(*f3,7)==0 && fixkeys::cycleIndex(*f3,8)==1,"without one, the first press sets the first preset");
+        CHECK(fixkeys::caption(f1,0)==L"1/4" && fixkeys::caption(f1,2)==L"3/4" && fixkeys::caption(f3,0)==L"6 steps" && fixkeys::caption(f3,2)==L"2/6","button notes for cycles");
+        CHECK(fixkeys::caption(f2,0)==L"toggle" && fixkeys::caption(f2,1)==L"switched" && fixkeys::caption(f2,2)==L"normal" && fixkeys::caption(f5,3)==L"switched","button notes for toggles");
+        CHECK(fixkeys::caption(nullptr,3).empty(),"nothing is claimed about a key the fix does not describe");
+
+        // Words.
+        const auto text=tools::explainKey(L"Convergence",VK_F1,f1,2);
+        CHECK(text.find(L"Convergence sets where the 3D screen plane sits")!=std::wstring::npos && text.find(L"0 \u2192 15 \u2192 28 \u2192 38.6")!=std::wstring::npos &&
+            text.find(L"4 presets")!=std::wstring::npos && text.find(L"Now: step 3 (28)")!=std::wstring::npos && text.find(L"Shift+F1")!=std::wstring::npos,"a cycle is explained, with its presets, where it is now, and the way back");
+        CHECK(tools::explainKey(L"Depth of field",VK_F2,f2,0).find(L"flips it between its two states")!=std::wstring::npos && tools::explainKey(L"Depth of field",VK_F2,f2,0).find(L"Shift")==std::wstring::npos,"a toggle is explained");
+        CHECK(tools::explainKey(L"HUD depth",VK_F3,f3,0).find(L"Now:")==std::wstring::npos,"where it is now is only said when it is known");
+        CHECK(tools::explainKey(L"Unknown thing",VK_F7,nullptr,0).find(L"F7")!=std::wstring::npos,"a key the fix does not describe still gets a line");
+        CHECK(tools::explainKey(L"Mystery",VK_F4,f2,0).find(L"Depth of field toggle.")!=std::wstring::npos,"a name that is not known falls back on the author's own note");
+        for (const wchar_t* label:{L"Convergence",L"HUD depth",L"HUD",L"Vignette",L"Bloom",L"Blurriness",L"Depth of field",L"Film grain"})
+            CHECK(!tools::glossary(label,"").empty(),std::string("a plain-words explanation exists for ")+std::to_string(static_cast<int>(label[0])));
+        CHECK(tools::glossary(L"HUD depth","").find(L"on-screen display")!=std::wstring::npos && tools::glossary(L"HUD","").find(L"Hides or shows")!=std::wstring::npos,"HUD depth and HUD are told apart");
+        for (const auto kind:{tools::Kind::SwapEyes,tools::Kind::Curve,tools::Kind::Glow,tools::Kind::FloatWindow,tools::Kind::Rumble,tools::Kind::Recenter})
+            CHECK(!tools::explainSetting(kind,true,true).empty(),"every setting has an explanation");
+        CHECK(tools::explainSetting(tools::Kind::Curve,false,true).find(L"does not work")!=std::wstring::npos && tools::explainSetting(tools::Kind::Rumble,true,false).find(L"no vibration")!=std::wstring::npos,"and says when it cannot work here");
+        CHECK(tools::explainSetting(tools::Kind::Key,true,true).empty(),"a shortcut is not a setting");
+        CHECK(wcslen(tools::IdleHelp)>20 && wcslen(tools::BarHelp)>20 && wcslen(tools::CloseHelp)>10,"the general hints exist");
     }
 
     if (failures) { std::cerr<<failures<<" tools/fx check(s) failed\n"; return 1; }

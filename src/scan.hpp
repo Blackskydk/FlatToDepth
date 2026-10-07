@@ -122,7 +122,8 @@ inline std::filesystem::path findGameExe(const std::filesystem::path& dir,const 
 inline GameAnalysis analyseGame(const SteamApp& app) {
     GameAnalysis a; a.app=app;
     const int known=findGameByApp(app.appId);
-    const std::filesystem::path dir=app.directory();
+    std::filesystem::path dir=app.directory();
+    if (known>=0 && !Games[static_cast<size_t>(known)].exeDir.empty()) dir/=Games[static_cast<size_t>(known)].exeDir;   // a game that keeps its program in a subfolder
     a.exe=findGameExe(dir,known>=0 ? Games[static_cast<size_t>(known)].process : std::wstring());
     std::error_code ec;
     if (a.exe.empty() || !std::filesystem::exists(a.exe,ec)) { a.note="no executable found"; a.catalogGame=known; a.verdict=known>=0 ? Verdict::Supported : Verdict::Unknown; return a; }
@@ -197,11 +198,17 @@ inline std::string draftEntry(const GameAnalysis& a) {
      <<"title=" << a.app.name << "\n"
      <<"steam_app_id=" << a.app.appId << "\n";
     if (!a.exe.empty()) o<<"exe=" << a.exe.filename().string() << "\n";
+    if (!a.exe.empty()) {   // a program that is not in the game's top folder: say which folder, as the fix must go beside it
+        std::error_code ec; const auto inside=std::filesystem::relative(a.exe.parent_path(),a.app.directory(),ec).string();
+        if (!ec && !inside.empty() && inside!=".") {
+            if (inside.find_first_of("\\/")==std::string::npos) o<<"exe_dir=" << inside << "\n";
+            else o<<"; The program is in " << inside << ", deeper than exe_dir can name (one folder), so the fix cannot be installed by FlatToDepth for it.\n";
+        }
+    }
     o<<"folder=" << a.app.installDir << "\n";
     if (!a.exe.empty()) o<<"machine=" << (a.x64 ? "x64" : "x86") << "\n";
-    if (a.x64) o<<"shim_files=xinput1_4.dll,xinput1_3.dll\n";
-    else if (a.xinput.count("xinput9_1_0") || a.xinput.empty()) o<<"shim_files=xinput9_1_0.dll\n";
-    else o<<"; The 32-bit controller shim only exists as xinput9_1_0.dll; this game loads " << joinSet(a.xinput) << ", so its controller will not work yet.\n";
+    // The VR controllers reach every game as a virtual Xbox controller (the ViGEmBus driver), whichever XInput DLL it loads.
+    o<<"gamepad=virtual\n";
     o<<"; Shortcuts for the tools panel, if the fix has any:  key1=Convergence|F1\n"
      <<"; To install a stereo fix for it, find one and add fix_url, fix_sha256 and fix_archive (see docs/GAMES.md).\n"
      <<"; Without them, install the fix yourself; FlatToDepth still handles the menu, the controller and the settings.\n";

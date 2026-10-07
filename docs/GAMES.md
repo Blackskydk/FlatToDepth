@@ -10,10 +10,10 @@ A game works with FlatToDepth when all of these are true:
 
 1. It draws with **DirectX 11**. That is what the Geo-11 fixes work on. DirectX 9, DirectX 12, Vulkan and OpenGL games do not.
 2. **A Geo-11 stereo fix exists for that game.** Fixes are made by hand, one game at a time (the [HelixMod blog](https://helixmod.blogspot.com) and the communities around it collect them), because each game's shaders need their own corrections. A game with no fix draws wrongly in 3D, or not at all.
-3. Its controller input can be passed on. FlatToDepth reads your VR controllers and presents them to the game as an ordinary gamepad, through a small replacement for the game's XInput DLL. That covers **64-bit games** (`xinput1_4.dll` or `xinput1_3.dll`) and **32-bit games that use `xinput9_1_0.dll`**. A 32-bit game that loads `xinput1_3.dll` or `xinput1_4.dll` is not covered yet: the game would show in 3D but its controller would not work. The scan below tells you which DLL a game loads. Games that need a keyboard and mouse, or read the controller some other way, are not helped by this.
+3. Its controller input can be passed on. FlatToDepth reads your VR controllers and presents them to the game as an ordinary Xbox 360 gamepad: a virtual one that Windows itself shows to every game, through the free ViGEmBus driver (see [Controllers](#controllers-one-virtual-pad-for-every-game)). That works for any game, 32-bit or 64-bit, whichever way it reads its controllers (XInput, Windows.Gaming.Input, Rewired); it does not depend on the game at all. Games that need a keyboard and mouse are not helped by this.
 4. It is installed through **Steam**: FlatToDepth finds games in your Steam libraries and starts them through Steam.
 
-The **catalog** (`games.catalog.ini`) lists the games where someone has checked all of that. Right now it holds two games, *Ori and the Blind Forest: Definitive Edition* and *Ori and the Will of the Wisps*, the ones it was built with. It is meant to grow, see [Adding to the catalog](#adding-to-the-catalog-for-everyone).
+The **catalog** (`games.catalog.ini`) lists the games where someone has checked all of that. Right now it holds three games: *Ori and the Blind Forest: Definitive Edition* and *Ori and the Will of the Wisps*, the ones it was built with, and *Hollow Knight* (see [Hollow Knight](#hollow-knight) for what it needed). It is meant to grow, see [Adding to the catalog](#adding-to-the-catalog-for-everyone).
 
 ## See what is on your PC
 
@@ -48,11 +48,11 @@ The scan is a guide, not a promise. It looks at what a program imports and menti
 
 Everything you add goes in **`games.user.ini`**, next to `flattodepth.ini` in the FlatToDepth folder. FlatToDepth never overwrites it, and updates replace `games.catalog.ini` but not this file. If a section in your file has the same name as one in the catalog, yours replaces it.
 
-1. **Get a draft.** Run `bin\FlatToDepth.exe --scan --draft <steam app number>` (the number is in the scan's APP column). It prints an entry with the title, program, folder, bitness and the right shim filled in. Paste it into `games.user.ini`.
+1. **Get a draft.** Run `bin\FlatToDepth.exe --scan --draft <steam app number>` (the number is in the scan's APP column). It prints an entry with the title, program, folder and bitness filled in. Paste it into `games.user.ini`.
 2. **Get the stereo fix** for that game, one of two ways:
    - *You install it yourself* (leave the `fix_*` lines out). Follow the fix's own instructions. Afterwards its `d3dxdm.ini` needs `direct_mode = katanga_vr`, and `force_stereo=2` must be set in its `d3dx.ini`. FlatToDepth still does the menu, the controller and the settings.
    - *FlatToDepth downloads it for you.* Add `fix_url`, `fix_sha256` and optionally `fix_archive`, `fix_inner`, `fix_marker` and `fix_author`; see [the fields](#the-fields). `fix_sha256` is required: it pins exactly the file you inspected, so nothing else is ever installed. Fixes are licensed for personal use and are never redistributed by FlatToDepth.
-3. **Install the controller shim (and the fix, if you gave a `fix_url`):** double-click `Install.cmd`, or run `Install.cmd -Games <id>` with the section name you chose. It needs `machine` (`x86` or `x64`) and `shim_files` in the entry. Close the game first.
+3. **Install the stereo fix, if you gave a `fix_url`:** double-click `Install.cmd`, or run `Install.cmd -Games <id>` with the section name you chose. Close the game first. The controllers need nothing installed in the game's folder; `Install.cmd` only tells you whether the ViGEmBus driver is there.
 4. **Start FlatToDepth** (`Start-FlatToDepth.cmd`). The game is in the menu. Choose it. If depth looks inside-out use **Swap eyes** in the [tools panel](USAGE.md#the-tools-panel); if the picture is cut off or has bars, set `crop_aspect` in the game's settings file (below).
 
 The game's settings (screen size and place, eye order, curve, glow and so on) live in **`flattodepth-<id>.ini`**, created from `flattodepth.default.ini` the first time the game is shown.
@@ -69,15 +69,21 @@ A section is one game. The name in `[brackets]` is its id: 1 to 32 lower-case le
 | `subtitle` | A second line on the menu tile, such as `Definitive Edition`. |
 | `steam_app_id` | The game's Steam app number. **Required.** |
 | `exe` | The game's program, a name with no folder, like `game.exe`. **Required.** |
+| `exe_dir` | The one folder inside the game's folder that holds the program, for a game that does not keep it in the top folder (many games keep it in a folder such as `x64` or `bin`). The controller shim and the stereo fix are installed there. A name with no slashes. `FlatToDepth.exe --scan --draft` fills it in for you. |
 | `folder` | The game's usual folder name in `steamapps\common`, used only if Steam has no record of it. |
-| `machine` | `x86` or `x64`: whether the program is 32-bit or 64-bit. Needed to install the controller shim. |
-| `shim_files` | The controller shim names to install in the game folder, such as `xinput1_4.dll,xinput1_3.dll`. Only `xinput*.dll` names. 64-bit: `xinput1_4.dll`, `xinput1_3.dll`. 32-bit: `xinput9_1_0.dll`. |
+| `machine` | `x86` or `x64`: whether the program is 32-bit or 64-bit. Only needed for an entry that installs a controller shim (see `shim_files`); the draft fills it in anyway. |
+| `shim_files` | Optional, and rare: names of a replacement XInput DLL to install in the game folder instead of using the virtual pad, such as `xinput1_4.dll,xinput1_3.dll` (64-bit) or `xinput9_1_0.dll` (32-bit). Only `xinput*.dll` names. It needs no driver, but only reaches a game that calls that DLL, and gives the game no rumble from the virtual pad. An entry with `shim_files` is a shim entry. |
+| `gamepad` | `virtual` (the default) or `shim`: how the VR controllers reach the game. `virtual` makes them a virtual Xbox controller in Windows through the ViGEmBus driver, which every game sees. `shim` installs the replacement XInput DLL named in `shim_files`. You rarely need to say it: an entry with no `shim_files` is virtual, one with `shim_files` is a shim. A virtual entry cannot have `shim_files` (a shim in the game folder would hide the virtual controller from the game). |
 | `profile` | The game's settings file name. Default `flattodepth-<id>.ini`. |
 | `key1` ... `key6` | Stereo-fix shortcuts for the tools panel, as `Label\|F1`. The panel presses that key in the game for you. Which keys do what depends on the fix: its readme or `d3dxdm.ini` lists them (convergence, HUD depth and so on). Only F1 to F12. |
 | `fix_url` | An `https://` address to download the fix from. Optional; without it you install the fix yourself. |
 | `fix_sha256` | The SHA256 of that download, 64 hex digits. **Required with `fix_url`.** `Get-FileHash <file>` in PowerShell prints it. |
 | `fix_archive` | What to call the download on disk. Default: the file name at the end of the address. |
 | `fix_inner` | If the download wraps its files in a second archive, that archive's name. |
+| `fix_root` | If the download holds several builds side by side (a `x32` and an `x64` folder), the one folder whose files are installed. A name with no slashes. |
+| `driver_url`, `driver_sha256` | Optional, only with a fix: a second, pinned download of the Geo-11 driver. A game that has been updated since its fix was made can need more of Windows than the fix's own `d3d11.dll` provides (a current Unity game will not even start), so the files named in `driver_files` are taken from this download instead. Hollow Knight does this. |
+| `driver_files` | The files to take from that download, comma separated, such as `d3d11.dll,nvapi64.dll`. **Required with `driver_url`.** |
+| `driver_root`, `driver_archive`, `driver_author` | The one folder inside the driver download to take them from (`x64`), the download's file name if its address does not end in one, and who made it (shown in the license question). |
 | `fix_marker` | A file that shows the fix has been unpacked. Default `d3dx.ini`. |
 | `fix_author` | Who made it, shown when you are asked to accept its license. |
 | `fix_dir`, `fix_manifest`, `shim_manifest` | Names of FlatToDepth's working folder and install records for this game. Leave them out unless an install already exists under other names. |
@@ -90,7 +96,6 @@ title=Example Game
 steam_app_id=999001
 exe=example.exe
 machine=x64
-shim_files=xinput1_4.dll,xinput1_3.dll
 key1=Convergence|F1
 key2=HUD depth|F2
 ```
@@ -102,7 +107,7 @@ key2=HUD depth|F2
 - **A real, working fix exists** for that exact game, and you have run it through FlatToDepth on a headset: the picture is in stereo with correct depth, the controller plays the game, and the game starts and returns to the menu properly. Say in the pull request what you tested it on.
 - **`fix_url` is the fix author's own page** (https), not a mirror, and the entry has the **`fix_sha256` of the package you inspected**. If the author later changes the file, the installer refuses it until someone checks the new one.
 - **Nothing from the fix is copied into this repository.** The fixes are personal-use only and are not FlatToDepth's to redistribute. The entry holds an address, a hash and a name; nothing else.
-- `machine` and `shim_files` are right for the game (the scan shows the DLL it loads), the shortcuts are the ones the fix really has, and `exe`, `steam_app_id` and `folder` match a clean Steam install.
+- `machine` is right for the game (the scan shows it), the shortcuts are the ones the fix really has, and `exe`, `steam_app_id` and `folder` match a clean Steam install.
 
 Entries are checked by the project's tests (`tests/catalog_test.cpp`, `tests/catalog_test.ps1`): an entry that breaks the format, names a folder instead of a file, uses a non-https address or leaves out the hash does not load.
 
@@ -115,6 +120,25 @@ Entries are checked by the project's tests (`tests/catalog_test.cpp`, `tests/cat
 ## Limits worth knowing
 
 - FlatToDepth cannot make a game 3D by itself. Without a fix made for it, a game in the list does not look right.
-- The controller shim only exists for the XInput DLL names above. Other input paths (keyboard-only games, other controller APIs) are not covered.
+- The VR controllers need the ViGEmBus driver (below). Keyboard-only games are not covered.
 - Only DirectX 11 games, one game at a time, and only on Windows with Steam.
 - Everything here has so far been verified for the two Ori games only. Treat any other game as an experiment until someone has played it.
+
+## Controllers: one virtual pad for every game
+
+A game has to see your VR controllers as a gamepad. The Steam Frame controllers are, in effect, an Xbox 360 controller split in half, so FlatToDepth makes one: a **virtual Xbox 360 controller** in Windows, through the **ViGEmBus** driver, fed with what your controllers do (left stick and D-pad, right A/B/X/Y, triggers, bumpers, stick clicks, Menu and View). Windows shows it to every game like a real pad (XInput, XInput 9.1.0 for old 32-bit games, Windows.Gaming.Input, Raw Input), so it works the same for Ori and the Blind Forest (32-bit), Ori and the Will of the Wisps, Hollow Knight and any game you add, and the game's vibration comes back through it to your controllers. The pad exists while a game that wants it is running and goes away when it ends.
+
+
+Older versions put a small replacement XInput DLL (a *shim*) in each game's folder instead. It only reached games that call that exact DLL (Will of the Wisps loaded it and never called it; Hollow Knight does not use XInput at all), so it has been replaced. An entry can still ask for one with `shim_files` (for a PC without the driver), and `Install.cmd` removes a shim from an earlier version when the entry is virtual.
+
+ViGEmBus is a signed driver that DS4Windows and many emulators already install. FlatToDepth does not install it: get it from [github.com/nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) (the project is retired, but the last release still works) and run its installer once. `Install.cmd` tells you whether it is there; if it is not, a game that needs it simply has no VR controllers (play it with a gamepad or keyboard on the PC) and `logs\flattodepth.log` says `No virtual controller for this game: ...`.
+
+A few things to know. The game window still has to be the active window on the desktop (Windows hands controller input only to the window in front). If a game also has an old shim in its folder, `Install.cmd` removes it, because a shim answers "no controller" for every pad and would hide the virtual one.
+## Hollow Knight
+
+Hollow Knight has a Geo-11 fix by masterotaku, but it was found not to start with the current game on a current Windows. The game is now built with Unity 6, which needs a function (`D3D11On12CreateDevice`) that the older Geo-11 `d3d11.dll` inside the fix does not have, so the process stops with *entry point not found* before anything is drawn. The catalog entry therefore lays the current Geo-11 driver's `d3d11.dll` and `nvapi64.dll` over the fix (`driver_url`, see above); the fix's shaders and settings are still its own.
+
+Two things to know:
+
+- **Controllers.** Unity 6 reads controllers through `Windows.Gaming.Input`, not XInput, which a shim could never reach; the virtual pad needs no help from the game (see [Controllers](#controllers-one-virtual-pad-for-every-game)). Without the ViGEmBus driver the VR controllers still move and resize the screen and open the tools panel, but a keyboard or a gamepad on the PC plays the game.
+- **Not tried in a headset.** The game starts and exports its picture with the newer driver; how the fix's shaders behave with it has not been checked.

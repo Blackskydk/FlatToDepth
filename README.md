@@ -4,7 +4,7 @@
 
 **FlatToDepth turns 2D PC games into 3D-with-depth in VR.** The game appears as a huge stereoscopic screen you can move, push away and resize with your VR controllers, and you play it with those same controllers. The depth comes from a **Geo-11 stereo fix**, a small set of files made for one particular DirectX 11 game that makes it draw once per eye. FlatToDepth takes that picture and shows each eye's view in the matching eye of your headset through OpenXR. It is not tied to any one game: a [catalog of games](docs/GAMES.md) says which ones it can handle, a scan shows which of your Steam games are worth trying, and you can add your own.
 
-It ships ready for **Ori and the Blind Forest: Definitive Edition** and **Ori and the Will of the Wisps**, the games it was first built and tested with.
+It ships ready for **Ori and the Blind Forest: Definitive Edition** and **Ori and the Will of the Wisps**, the games it was first built and tested with, and for **Hollow Knight**, which has a Geo-11 fix but has not yet been tried in a headset (see [Games](docs/GAMES.md#hollow-knight)).
 
 - **Real 3D depth.** The game is rendered twice, once per eye. No screen capture, no desktop mirroring.
 - **An in-headset game menu.** Start FlatToDepth, point at a game, pull the trigger. It launches the game through Steam and shows it; when you quit, you are back at the menu. It lists the supported games you have installed, with pages once there are more than a few.
@@ -20,12 +20,12 @@ It ships ready for **Ori and the Blind Forest: Definitive Edition** and **Ori an
 ## Install
 
 1. Download the latest `FlatToDepth-<version>-win64.zip` from [**Releases**](https://github.com/Blackskydk/FlatToDepth/releases/latest) and extract it somewhere permanent (for example `C:\FlatToDepth`).
-2. Close the games and double-click **`Install.cmd`**. It finds the supported games in your Steam library, installs each one's Geo-11 stereo fix (downloaded from its author after you accept its license) and the controller shim.
+2. Close the games and double-click **`Install.cmd`**. It finds the supported games in your Steam library and installs each one's Geo-11 stereo fix (downloaded from its author after you accept its license). The controllers need no files in the games: FlatToDepth makes a virtual Xbox controller through the free ViGEmBus driver (see [Controllers](docs/GAMES.md#controllers-one-virtual-pad-for-every-game)).
 3. Start SteamVR, put the headset on, double-click **`Start-FlatToDepth.cmd`**, point at a game and pull the trigger.
 
 That is the whole thing. The [**install guide**](docs/INSTALL.md) has the details, how to start it from inside the headset, updating, uninstalling and troubleshooting.
 
-**Requirements:** Windows 10/11 64-bit, Steam with SteamVR (set as the OpenXR runtime), a SteamVR headset, and at least one supported game from Steam (the two Ori games, or others you add).
+**Requirements:** Windows 10/11 64-bit, Steam with SteamVR (set as the OpenXR runtime), a SteamVR headset, and at least one supported game from Steam (the games it ships with, or others you add).
 
 ## Documentation
 

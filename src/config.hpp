@@ -26,7 +26,10 @@ struct Config {
     float floatWindow=0;        // floating window: fraction of the picture hidden at one edge of each eye
     bool rumble=true;           // game rumble on the controllers
     float rumbleStrength=1.0f;
+    bool hideGameTheater=true;  // keep SteamVR from covering FlatToDepth with the flat game's own window (see steamvr_settings.hpp)
     bool rumbleSplit=false;     // left motor on the left controller and right motor on the right, instead of both following the stronger
+    bool hasToolsOffset=false;  // the tools panel was carried somewhere: where it opens, in metres right/up/forward of the head's heading
+    XrVector3f toolsOffset{0,-0.2f,-1.5f};
     std::filesystem::path file;
     bool hasPlacement=false;
     XrPosef placement{{0,0,0,1},{0,0,-2.5f}};
@@ -65,6 +68,16 @@ struct Config {
         rumble=flag(L"haptics",L"enabled",L"1","[haptics] enabled must be 0 or 1");
         rumbleStrength=number(L"haptics",L"strength",L"1.0"); require(rumbleStrength>=0 && rumbleStrength<=2,"[haptics] strength must be between 0 and 2");
         rumbleSplit=flag(L"haptics",L"split",L"0","[haptics] split must be 0 or 1");
+        hideGameTheater=flag(L"steamvr",L"hide_game_theater",L"1","[steamvr] hide_game_theater must be 0 or 1");
+        hasToolsOffset=GetPrivateProfileIntW(L"tools",L"placed",0,abs.c_str())!=0;
+        if (hasToolsOffset) {
+            auto offset=[&](const wchar_t* key) {
+                wchar_t b[64]{}; GetPrivateProfileStringW(L"tools",key,L"0",b,64,abs.c_str());
+                size_t end=0; float n=std::stof(b,&end); require(end==std::wcslen(b)&&std::isfinite(n),"Invalid saved tools panel position"); return n;
+            };
+            toolsOffset={offset(L"x_m"),offset(L"y_m"),offset(L"z_m")};
+            require(pose::length(toolsOffset)>=0.3f && pose::length(toolsOffset)<=6,"Saved tools panel position out of range");
+        }
         hasPlacement=GetPrivateProfileIntW(L"placement",L"enabled",0,abs.c_str())!=0;
         if (hasPlacement) {
             auto saved=[&](const wchar_t* key,const wchar_t* fallback) {
@@ -82,6 +95,11 @@ struct Config {
     void save(const wchar_t* section,const wchar_t* key,float value) const {
         const auto text=std::to_wstring(value);
         if (!WritePrivateProfileStringW(section,key,text.c_str(),file.c_str())) log("Could not save a setting; Win32="+std::to_string(GetLastError()));
+    }
+    // Remembers where the tools panel was carried to, so it opens there next time.
+    void saveToolsOffset(const XrVector3f& offset) {
+        toolsOffset=offset; hasToolsOffset=true;
+        save(L"tools",L"placed",1); save(L"tools",L"x_m",offset.x); save(L"tools",L"y_m",offset.y); save(L"tools",L"z_m",offset.z);
     }
     // Older files stored the width of the whole export, black bars included. Convert once, when the real
     // picture is known, so the visible window keeps exactly the size it had.

@@ -72,10 +72,10 @@ foreach ($entry in $chosen) {
         if (-not $DryRun) {
             # A game moved to another Steam library keeps our files; just point the records at its new folder.
             foreach ($record in $fixRecord, (Join-Path $FtdState $game.ShimManifest)) {
-                if (Sync-FtdRecordDirectory $record $dir) { Say '  the game was moved to another Steam library; install record updated.' 'Yellow' }
+                if (Sync-FtdRecordDirectory $record (Get-FtdInstallDirectory $game $dir)) { Say '  the game was moved to another Steam library; install record updated.' 'Yellow' }
             }
         }
-        $foreignFix = (Test-Path -LiteralPath (Join-Path $dir 'd3d11.dll')) -and -not (Test-Path -LiteralPath $fixRecord)
+        $foreignFix = (Test-Path -LiteralPath (Join-Path (Get-FtdInstallDirectory $game $dir) 'd3d11.dll')) -and -not (Test-Path -LiteralPath $fixRecord)
         if (Test-Path -LiteralPath $fixRecord) { Say '  stereo fix: already installed by FlatToDepth.' 'Green' }
         elseif ($foreignFix) {
             Say '  stereo fix: a d3d11.dll is already in the game folder (not installed by FlatToDepth), so it was left alone.' 'Yellow'
@@ -90,8 +90,11 @@ foreach ($entry in $chosen) {
             $licenseSwitch = @{}; if ($AcceptFixLicense) { $licenseSwitch.AcceptLicense = $true }
             & "$PSScriptRoot\install-geo11.ps1" -Game $game.Id -GameDirectory $dir @licenseSwitch | ForEach-Object { Say "  $_" 'Green' }
         }
-        if (-not $game.Machine -or -not $game.ShimFiles.Count) { throw 'its catalog entry needs machine=x86 or x64 and shim_files before the controller shim can be installed' }
-        if ($DryRun) { Say "  controller shim: would install $($game.ShimFiles -join ', ')." }
+        if (-not $game.VirtualPad -and (-not $game.Machine -or -not $game.ShimFiles.Count)) { throw 'its catalog entry needs machine=x86 or x64 and shim_files before the controller shim can be installed' }
+        if ($DryRun) {
+            if ($game.VirtualPad) { Say "  controllers: a virtual Xbox controller through ViGEmBus ($(if (Test-FtdVirtualGamepadDriver) { 'installed' } else { 'NOT installed' })); no shim; would remove one an earlier version installed." }
+            else { Say "  controller shim: would install $($game.ShimFiles -join ', ')." }
+        }
         else { & "$PSScriptRoot\install-gamepad.ps1" -Game $game.Id -GameDirectory $dir | ForEach-Object { Say "  $_" 'Green' } }
         $results += "OK    $($game.Title)"
     } catch {

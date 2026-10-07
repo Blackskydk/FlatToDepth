@@ -66,6 +66,10 @@ function ConvertTo-FtdGame($Section, [string]$Source) {
     if ($appText -notmatch '^[0-9]{1,10}$' -or -not [uint64]::TryParse($appText, [ref]$app) -or $app -eq 0 -or $app -gt 4294967295) { throw "steam_app_id must be the game's Steam app number" }
     $exe = Field 'exe'
     if (-not (Test-FtdPlainName $exe ' _.-+') -or $exe.Length -lt 5 -or -not $exe.EndsWith('.exe', [StringComparison]::OrdinalIgnoreCase)) { throw 'exe must be the game''s executable name, like game.exe, with no folder' }
+    $exeDir = Field 'exe_dir'
+    if ($exeDir -and -not (Test-FtdPlainName $exeDir)) { throw 'exe_dir must be the name of one folder inside the game folder, with no slashes' }
+    $fixRoot = Field 'fix_root'
+    if ($fixRoot -and -not (Test-FtdPlainName $fixRoot)) { throw 'fix_root must be the name of one folder inside the fix download, with no slashes' }
     $machineText = Field 'machine'
     if ($machineText -notin @('', 'x86', 'x64')) { throw 'machine must be x86 or x64' }
     $profile = Field 'profile' "flattodepth-$id.ini"
@@ -83,6 +87,11 @@ function ConvertTo-FtdGame($Section, [string]$Source) {
     }
     $shim = @((Field 'shim_files') -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     foreach ($dll in $shim) { if ($dll -inotmatch '^xinput[A-Za-z0-9_.]*\.dll$') { throw 'shim_files may only name xinput*.dll files' } }
+    # How the VR controllers reach the game: through a shim in its folder (the default), or as a virtual Xbox controller that
+    # Windows itself shows to every game. Same rules as src\catalog.hpp.
+    $gamepad = Field 'gamepad' $(if ($shim.Count) { 'shim' } else { 'virtual' })
+    if ($gamepad -cnotin @('shim', 'virtual')) { throw 'gamepad must be shim or virtual' }
+    if (($gamepad -ceq 'virtual') -and $shim.Count) { throw 'gamepad=virtual does not use shim_files: a shim in the game folder would hide the virtual controller from the game' }
     foreach ($name in 'shim_manifest', 'fix_manifest', 'fix_dir') { if ((Field $name) -and -not (Test-FtdPlainName (Field $name))) { throw "$name must be a plain file or folder name" } }
     $url = Field 'fix_url'; $sha = ''; $archive = ''
     if ($url) {
@@ -93,18 +102,41 @@ function ConvertTo-FtdGame($Section, [string]$Source) {
         foreach ($name in 'fix_inner', 'fix_marker') { if ((Field $name) -and -not (Test-FtdPlainName (Field $name) '_.-+')) { throw "$name must be a plain file name" } }
         if (-not (Test-FtdPlainName $archive '_.-+')) { throw 'fix_archive must be a plain file name (the address does not end in one, so name it)' }
     }
+    # An optional newer Geo-11 driver, laid over the fix: some of the fix's own files (its d3d11.dll) are too old for a game
+    # that has been updated since, so a few files are taken from a second, pinned download instead.
+    $driverUrl = Field 'driver_url'; $driverSha = ''; $driverArchive = ''; $driverFiles = @()
+    if (-not $driverUrl) {
+        foreach ($name in 'driver_sha256', 'driver_archive', 'driver_root', 'driver_files') { if (Field $name) { throw "$name needs driver_url" } }
+    } else {
+        if (-not $url) { throw 'driver_url replaces files of a stereo fix, so the entry needs fix_url too' }
+        if ($driverUrl -notmatch '^https://' -or $driverUrl -match '[\s"''<>`]') { throw 'driver_url must be an https:// address' }
+        $driverSha = Field 'driver_sha256'
+        if ($driverSha -notmatch '^[0-9A-Fa-f]{64}$') { throw 'driver_url needs driver_sha256, the SHA256 of the download (64 hex digits), so only the inspected file is ever installed' }
+        $driverArchive = Field 'driver_archive' (Get-FtdUrlFileName $driverUrl)
+        if (-not (Test-FtdPlainName $driverArchive '_.-+')) { throw 'driver_archive must be a plain file name (the address does not end in one, so name it)' }
+        if ((Field 'driver_root') -and -not (Test-FtdPlainName (Field 'driver_root'))) { throw 'driver_root must be the name of one folder inside the driver download, with no slashes' }
+        $driverFiles = @((Field 'driver_files') -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        if (-not $driverFiles.Count) { throw 'driver_url needs driver_files, the names of the files to take from the download' }
+        foreach ($f in $driverFiles) { if (-not (Test-FtdPlainName $f '_.-+')) { throw 'driver_files must be plain file names' } }
+    }
     $subtitle = Field 'subtitle'
     $machine = switch ($machineText) { 'x86' { 0x14c } 'x64' { 0x8664 } default { $null } }
     @{
         Id = $id; Title = $(if ($subtitle) { "${title}: $subtitle" } else { $title }); Name = $title; Subtitle = $subtitle; Source = $Source
-        AppId = $app; Folder = (Field 'folder'); Exe = $exe; Process = [IO.Path]::GetFileNameWithoutExtension($exe); Machine = $machine
+        AppId = $app; Folder = (Field 'folder'); Exe = $exe; ExeDir = $exeDir; FixRoot = $fixRoot; Process = [IO.Path]::GetFileNameWithoutExtension($exe); Machine = $machine
         Profile = $profile; Keys = $keys
         HasFix = [bool]$url; FixUrl = $url; FixArchive = $archive; FixSha256 = $sha.ToUpperInvariant(); FixAuthor = (Field 'fix_author' 'its author')
         FixDir = (Field 'fix_dir' "$id-fix"); FixManifest = (Field 'fix_manifest' "geo11-install-$id.json")
         FixInner = (Field 'fix_inner'); FixMarker = (Field 'fix_marker' 'd3dx.ini')
-        ShimBuild = $(if ($machineText -eq 'x86') { Join-Path $FtdBin 'gamepad' } else { Join-Path $FtdBin 'gamepad64' }); ShimFiles = $shim
+        HasDriver = [bool]$driverUrl; DriverAuthor = (Field 'driver_author' 'its author'); DriverUrl = $driverUrl; DriverArchive = $driverArchive; DriverSha256 = $driverSha.ToUpperInvariant(); DriverRoot = (Field 'driver_root'); DriverFiles = $driverFiles
+        ShimBuild = $(if ($machineText -eq 'x86') { Join-Path $FtdBin 'gamepad' } else { Join-Path $FtdBin 'gamepad64' }); ShimFiles = $shim; VirtualPad = ($gamepad -ceq 'virtual')
         ShimManifest = (Field 'shim_manifest' "gamepad-install-$id.json")
     }
+}
+# Is the ViGEmBus driver (the virtual gamepad bus) installed? Games with gamepad=virtual need it. It registers a device
+# interface with a fixed GUID, which makes this check independent of the language Windows is set to.
+function Test-FtdVirtualGamepadDriver {
+    Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\DeviceClasses\{96e42b22-f5e9-42f8-b043-ed0f932f014f}'
 }
 # The catalog and the user's file, merged: a user section with a catalog section's name replaces it in place.
 function Get-FtdCatalog {
@@ -148,6 +180,11 @@ function Get-FtdSteamLibraries {
     }
     $libraries | Group-Object { $_.ToLowerInvariant().TrimEnd('\') } | ForEach-Object { $_.Group[0] }   # drop case-only duplicates
 }
+# Where the game's program is, and so where its controller shim and stereo fix files must go: the game's folder, or the
+# one folder inside it that the catalog entry names (exe_dir=, for a game that keeps its program in a subfolder).
+function Get-FtdInstallDirectory($Game, [string]$GameDirectory) {
+    if ($Game.ExeDir) { Join-Path $GameDirectory $Game.ExeDir } else { $GameDirectory }
+}
 # The game's folder: an explicit path, or found through Steam. Steam's own record (appmanifest_<id>.acf) says which
 # library really has the game, so a stale leftover folder in another library is never picked by mistake.
 function Resolve-FtdGameDirectory($Game, [string]$Override) {
@@ -159,11 +196,11 @@ function Resolve-FtdGameDirectory($Game, [string]$Override) {
         $name = [regex]::Match((Get-Content -LiteralPath $record -Raw), '"installdir"\s+"([^"]*)"').Groups[1].Value
         if (-not $name) { $name = $Game.Folder }
         $candidate = Join-Path $library "steamapps\common\$name"
-        if (Test-Path -LiteralPath (Join-Path $candidate $Game.Exe)) { return $candidate.TrimEnd('\') }
+        if (Test-Path -LiteralPath (Join-Path (Get-FtdInstallDirectory $Game $candidate) $Game.Exe)) { return $candidate.TrimEnd('\') }
     }
     foreach ($library in $libraries) {    # no Steam record (unusual): fall back to the usual folder name
         $candidate = Join-Path $library "steamapps\common\$($Game.Folder)"
-        if (Test-Path -LiteralPath (Join-Path $candidate $Game.Exe)) { return $candidate.TrimEnd('\') }
+        if (Test-Path -LiteralPath (Join-Path (Get-FtdInstallDirectory $Game $candidate) $Game.Exe)) { return $candidate.TrimEnd('\') }
     }
     throw "Could not find $($Game.Title) in any Steam library; pass -GameDirectory."
 }

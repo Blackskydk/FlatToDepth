@@ -78,7 +78,9 @@ int main(int argc,char** argv) {
         GameInfo g;
         CHECK(load(good,g).empty() && g.id=="hollow-knight" && g.title==L"Hollow Knight" && g.steamAppId==367520 && g.process==L"hollow_knight.exe",
             "the smallest valid entry: title, Steam app and executable");
-        CHECK(g.profile==L"flattodepth-hollow-knight.ini" && g.keys.empty() && !g.hasFix && g.machine.empty() && g.subtitle.empty() && g.source=="test","everything else has a sensible default");
+        CHECK(g.profile==L"flattodepth-hollow-knight.ini" && g.keys.empty() && !g.hasFix && g.virtualPad && g.machine.empty() && g.subtitle.empty() && g.source=="test","everything else has a sensible default");
+        CHECK(load(good+"machine=x64\ngamepad=virtual\n",g).empty() && g.virtualPad && load(good+"machine=x64\ngamepad=shim\nshim_files=xinput1_4.dll\n",g).empty() && !g.virtualPad,"gamepad says whether the VR controllers arrive as a virtual pad or through a shim");
+        CHECK(load(good,g).empty() && g.virtualPad && load(good+"shim_files=xinput1_4.dll\n",g).empty() && !g.virtualPad,"with no gamepad line an entry gets the virtual pad, unless it names a shim to install");
         CHECK(load(good+"subtitle=Silksong\nmachine=x64\nprofile=hk.ini\nkey1=Convergence|F1\nkey2 = HUD | f12\nshim_files=xinput1_4.dll, XInput1_3.dll\n",g).empty() &&
             g.subtitle==L"Silksong" && g.machine=="x64" && g.profile==L"hk.ini" && g.keys.size()==2 && g.keys[0].label==L"Convergence" && g.keys[0].vk==VK_F1 && g.keys[1].label==L"HUD" && g.keys[1].vk==VK_F12,"optional fields");
         const std::string sha(64,'a');
@@ -143,6 +145,15 @@ int main(int argc,char** argv) {
         const auto& bf=r.games[0]; const auto& wotw=r.games[1];
         CHECK(bf.steamAppId==387290 && bf.process==L"oriDE.exe" && bf.profile==L"flattodepth-blindforest.ini" && bf.machine=="x86" && bf.hasFix && bf.title==L"Ori and the Blind Forest" && bf.subtitle==L"Definitive Edition","Blind Forest");
         CHECK(wotw.steamAppId==1057090 && wotw.process==L"oriwotw.exe" && wotw.profile==L"flattodepth-wotw.ini" && wotw.machine=="x64" && wotw.hasFix,"Will of the Wisps");
+        CHECK(bf.virtualPad && wotw.virtualPad,"the Ori games get the VR controllers as a virtual pad, whichever XInput DLL they load");
+        const int hkIndex=[&]() { for (size_t i=0;i<r.games.size();++i) if (r.games[i].id=="hollow-knight") return static_cast<int>(i); return -1; }();
+        CHECK(hkIndex>=2,"Hollow Knight is in the catalog, after the Ori games");
+        if (hkIndex>=0) {
+            const auto& hk=r.games[static_cast<size_t>(hkIndex)];
+            CHECK(hk.steamAppId==367520 && hk.process==L"hollow_knight.exe" && hk.profile==L"flattodepth-hollow-knight.ini" && hk.machine=="x64" && hk.hasFix && hk.title==L"Hollow Knight" &&
+                hk.keys.size()==5 && hk.keys[0].label==L"Convergence" && hk.keys[0].vk==VK_F1 && hk.keys[4].label==L"Bloom" && hk.keys[4].vk==VK_F5,"Hollow Knight: app, program, 64-bit, a fix to download and its five shortcuts");
+            CHECK(hk.virtualPad,"Hollow Knight gets the VR controllers as a virtual pad (it reads pads through Windows.Gaming.Input)");
+        }
         std::set<unsigned> apps; std::set<std::string> ids; std::set<std::wstring> procs,profiles;
         for (const auto& g : r.games) { apps.insert(g.steamAppId); ids.insert(g.id); procs.insert(g.process); profiles.insert(g.profile); }
         CHECK(apps.size()==r.games.size() && ids.size()==r.games.size() && procs.size()==r.games.size(),"ids, Steam apps and executables are unique");
@@ -327,16 +338,40 @@ int main(int argc,char** argv) {
             CHECK(g.steamAppId==id && g.process==widen(find(id).exe.filename().string()) && g.machine==(find(id).x64 ? "x64" : "x86") && !g.hasFix,"and says what it knows");
         }
         const std::string zedDraft=draftEntry(zed);
-        CHECK(contains(zedDraft,"[zed-s-quest-dark-edition]") && contains(zedDraft,"title=Zed's Quest: Dark Edition!") && contains(zedDraft,"exe=zed.exe") && contains(zedDraft,"shim_files=xinput1_4.dll,xinput1_3.dll") && contains(zedDraft,"fix_url"),"a draft names the game, its program and the 64-bit shim, and says where the fix goes");
+        CHECK(contains(zedDraft,"[zed-s-quest-dark-edition]") && contains(zedDraft,"title=Zed's Quest: Dark Edition!") && contains(zedDraft,"exe=zed.exe") && contains(zedDraft,"\ngamepad=virtual\n") && !contains(zedDraft,"shim_files") && contains(zedDraft,"fix_url"),"a draft names the game and its program, gives it the virtual pad (no shim), and says where the fix goes");
         const std::string thirty=draftEntry(find(1008));
-        CHECK(!contains(thirty,"\nshim_files=") && contains(thirty,"xinput1_3") && contains(thirty,"xinput9_1_0"),"a 32-bit game on another XInput DLL is told the shim does not cover it");
-        CHECK(contains(draftEntry(find(1004)),"shim_files=xinput9_1_0.dll"),"a 32-bit game on xinput9_1_0 gets the 32-bit shim");
+        CHECK(contains(thirty,"\ngamepad=virtual\n") && !contains(thirty,"shim") && contains(thirty,"machine=x86"),"a 32-bit game on any XInput DLL gets the virtual pad, with nothing about a shim");
+        CHECK(contains(draftEntry(find(1004)),"\ngamepad=virtual\n") && !contains(draftEntry(find(1004)),"shim_files"),"and so does a 32-bit game on xinput9_1_0");
         // Section names.
         CHECK(slugFor("Hollow Knight",1)=="hollow-knight" && slugFor("  ??? ",77)=="game-77" && slugFor("A -- B",1)=="a-b" && slugFor("Ori and the Will of the Wisps: Extended",1).size()<=28 && slugFor("x",1)=="x","section names from game names");
         const auto longName=slugFor("Ori and the Will of the Wisps: Extended Edition",1); CHECK(longName.back()!='-' && longName.size()<=28,"a long name is cut cleanly");
         // Finding the program.
         CHECK(findGameExe(common/"RealExe",L"").filename()=="game.exe" && findGameExe(common/"Ori DE",L"oriDE.exe").filename()=="oriDE.exe" && findGameExe(common/"Nothing",L"").empty() && findGameExe(common/"Ori DE",L"missing.exe").filename()=="oriDE.exe",
             "the catalog's executable is used when it is there, otherwise the biggest sensible one");
+    }
+
+    // --- A program that is not in the game's top folder ---------------------------------------------------------------
+    {
+        const auto lib=temp/"ScanSub"; const auto common=lib/"steamapps"/"common";
+        auto app=[&](unsigned id,const std::string& name,const std::string& dir) { writeFile(lib/"steamapps"/("appmanifest_"+std::to_string(id)+".acf"),manifest(id,name,dir)); return common/dir; };
+        // A listed game that keeps a DirectX build in x64 and a Vulkan build in x64Vk, both with the same name: its entry says exe_dir=x64.
+        const auto savedGames=Games;
+        { GameInfo split; std::string why; const auto sections=parseIni("[split]\ntitle=Split Folders\nsteam_app_id=2000\nexe=Split.exe\nexe_dir=x64\nmachine=x64\n");
+          CHECK(sections.size()==1 && (why=gameFromSection(sections[0],"test",split)).empty() && split.exeDir==L"x64","an entry with exe_dir loads ("+why+")"); Games.push_back(split); }
+        { const auto d=app(2000,"Split Folders","Split"); buildPe(d/"x64"/"Split.exe",true,{"kernel32.dll","d3d11.dll"}); buildPe(d/"x64Vk"/"Split.exe",true,{"kernel32.dll","vulkan-1.dll"}); }
+        buildPe(app(2001,"Beside","Beside")/"bin64"/"game.exe",true,{"d3d11.dll"});           // an unlisted game, program one folder down
+        buildPe(app(2002,"Deeper","Deeper")/"a"/"b"/"game.exe",true,{"d3d11.dll"});           // two folders down: exe_dir cannot name that
+        buildPe(app(2003,"Top","Top")/"game.exe",true,{"d3d11.dll"});                         // in the top folder, as most are
+        const auto results=scanInstalledGames(scanSteamApps({lib}));
+        Games=savedGames;
+        auto find=[&](unsigned id) -> const GameAnalysis& { for (const auto& r : results) if (r.app.appId==id) return r; static GameAnalysis none; return none; };
+        CHECK(find(2000).verdict==Verdict::Supported && find(2000).exe.parent_path().filename()=="x64" && find(2000).dx11,"the entry's folder is searched, so the DirectX build is the one examined");
+        const std::string beside=draftEntry(find(2001)),deeper=draftEntry(find(2002)),top=draftEntry(find(2003));
+        CHECK(contains(beside,"exe=game.exe") && contains(beside,"\nexe_dir=bin64\n"),"a draft for a program one folder down names the folder");
+        GameInfo g; std::string why;
+        CHECK(parseIni(beside).size()==1 && (why=gameFromSection(parseIni(beside)[0],"user",g)).empty() && g.exeDir==L"bin64","and is a valid entry ("+why+")");
+        CHECK(!contains(deeper,"\nexe_dir=") && contains(deeper,"deeper than exe_dir can name") && (why=gameFromSection(parseIni(deeper)[0],"user",g)).empty(),"two folders down is explained, and the draft is still valid");
+        CHECK(!contains(top,"exe_dir"),"a program in the top folder has no exe_dir");
     }
 
     fs::remove_all(temp,ignored);
